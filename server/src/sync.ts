@@ -264,10 +264,10 @@ export async function syncOrders(): Promise<SyncResult> {
     throw error;
   }
 
-  // Update retroStatus for orders based on retro template availability
+  // Update retroStatus for orders based on retro template availability.
+  // We check ALL orders with retroStatus='not_required' (not just the current sync
+  // batch) so that pre-existing rows with stale default values are also corrected.
   if (incomingOrderItemIds.size > 0) {
-    logger.info({ orderCount: incomingOrderItemIds.size }, "Checking retro template availability for synced orders");
-
     // Get all orders that have retroStatus='not_required'
     const allOrders = await db
       .select()
@@ -275,10 +275,8 @@ export async function syncOrders(): Promise<SyncResult> {
       .where(eq(orders.retroStatus, 'not_required'))
       .all();
 
-    // Filter to only check orders from this sync
-    const ordersToCheck = allOrders.filter(order =>
-      order.orderItemId != null && incomingOrderItemIds.has(order.orderItemId)
-    );
+    const ordersToCheck = allOrders;
+    logger.info({ orderCount: ordersToCheck.length }, "Checking retro template availability for all not_required orders");
 
     // Group orders by SKU to avoid checking the same SKU multiple times
     const ordersBySku = new Map<string, typeof ordersToCheck>();
