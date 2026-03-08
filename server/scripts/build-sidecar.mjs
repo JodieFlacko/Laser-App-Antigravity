@@ -69,12 +69,27 @@ const nativeAddonPlugin = {
             loader: 'js',
             contents: `
 const path = require('node:path');
+const fs = require('node:fs');
 // SIDECAR_RESOURCES_DIR is injected by Rust (\\\\?\\ prefix pre-stripped).
-// Dev fallback: use the node_modules path relative to the bundle __dirname.
+// In dev, Tauri places resources directly in target/debug/ (which SIDECAR_RESOURCES_DIR points to).
+// In release, Tauri unpacks resources into a \`resources/\` subfolder next to the main exe.
+// We check both locations synchronously.
 function loadAddon(_nameOrOpts) {
-  const addonPath = process.env.SIDECAR_RESOURCES_DIR
-    ? path.join(process.env.SIDECAR_RESOURCES_DIR, 'better_sqlite3.node')
-    : path.join(__dirname, '..', 'node_modules', 'better-sqlite3', 'build', 'Release', 'better_sqlite3.node');
+  let addonPath;
+  if (process.env.SIDECAR_RESOURCES_DIR) {
+    const rootPath = path.join(process.env.SIDECAR_RESOURCES_DIR, 'better_sqlite3.node');
+    const nestedPath = path.join(process.env.SIDECAR_RESOURCES_DIR, 'resources', 'better_sqlite3.node');
+    
+    if (fs.existsSync(nestedPath)) {
+      addonPath = nestedPath;
+    } else {
+      addonPath = rootPath; // Fallback to root (dev mode behavior)
+    }
+  } else {
+     // Dev fallback: use the node_modules path relative to the bundle __dirname.
+     addonPath = path.join(__dirname, '..', 'node_modules', 'better-sqlite3', 'build', 'Release', 'better_sqlite3.node');
+  }
+
   const m = { id: addonPath, filename: addonPath, exports: {}, loaded: false, children: [] };
   process.dlopen(m, addonPath);
   return m.exports;
