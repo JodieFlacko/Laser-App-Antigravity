@@ -1,0 +1,1392 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.app = void 0;
+exports.startServer = startServer;
+require("dotenv/config");
+const fastify_1 = __importDefault(require("fastify"));
+const cors_1 = __importDefault(require("@fastify/cors"));
+const static_1 = __importDefault(require("@fastify/static"));
+const zod_1 = require("zod");
+const fs_extra_1 = __importDefault(require("fs-extra"));
+const node_path_1 = __importDefault(require("node:path"));
+const node_url_1 = require("node:url");
+const node_path_2 = require("node:path");
+const node_process_1 = __importDefault(require("node:process"));
+const drizzle_orm_1 = require("drizzle-orm");
+const migrate_js_1 = require("./migrate.js");
+const db_js_1 = require("./db.js");
+const schema_js_1 = require("./schema.js");
+const sync_js_1 = require("./sync.js");
+const lightburn_js_1 = require("./lightburn.js");
+const logger_js_1 = require("./logger.js");
+const config_js_1 = require("./config.js");
+// ESM shim for __filename and __dirname
+const __filename = (0, node_url_1.fileURLToPath)(import.meta.url);
+const __dirname = (0, node_path_2.dirname)(__filename);
+const activeClients = new Map();
+const HEARTBEAT_TIMEOUT = 600000; // 10 minutes (600 seconds) - tolerates browser throttling when tab is minimized
+const HEARTBEAT_CHECK_INTERVAL = 30000; // Check for stale clients every 30 seconds
+const SHUTDOWN_GRACE_PERIOD = 5000; // 5 seconds grace period to avoid "Refresh Trap"
+let heartbeatMonitor = null;
+let shutdownTimer = null;
+const app = (0, fastify_1.default)({
+    logger: {
+        level: "info",
+        stream: {
+            write: (msg) => {
+                try {
+                    const log = JSON.parse(msg);
+                    const level = log.level;
+                    const method = log.req?.method;
+                    const url = log.req?.url;
+                    const statusCode = log.res?.statusCode;
+                    const responseTime = log.responseTime;
+                    if (method && url) {
+                        logger_js_1.logger.info({ method, url, statusCode, responseTime }, `${method} ${url} ${statusCode || ""} ${responseTime ? `${responseTime}ms` : ""}`);
+                    }
+                    else if (log.msg) {
+                        logger_js_1.logger[level >= 50 ? "error" : level >= 40 ? "warn" : "info"](log.msg);
+                    }
+                }
+                catch {
+                    // Fallback for non-JSON logs
+                    logger_js_1.logger.info(msg.trim());
+                }
+            },
+        },
+    },
+});
+exports.app = app;
+await app.register(cors_1.default, { origin: true });
+// Serve static files from the public directory (React build output)
+// Use __dirname to resolve relative to the compiled script location
+await app.register(static_1.default, {
+    root: (0, node_path_2.join)(__dirname, '../public'),
+    prefix: "/",
+});
+// ==================== GRACEFUL SHUTDOWN ENDPOINTS ====================
+/**
+ * Heartbeat endpoint - clients send periodic pings to indicate they're still alive
+ */
+app.post("/api/heartbeat", async (request, reply) => {
+    const bodySchema = zod_1.z.object({
+        clientId: zod_1.z.string()
+    });
+    try {
+        const { clientId } = bodySchema.parse(request.body);
+        activeClients.set(clientId, {
+            id: clientId,
+            lastHeartbeat: Date.now()
+        });
+        // Cancel any pending shutdown since we have an active client
+        if (shutdownTimer) {
+            logger_js_1.logger.info({ clientId }, "Active client detected, canceling pending shutdown");
+            clearTimeout(shutdownTimer);
+            shutdownTimer = null;
+        }
+        return { success: true, activeClients: activeClients.size };
+    }
+    catch (error) {
+        reply.code(400);
+        return { error: "Invalid request" };
+    }
+});
+/**
+ * Shutdown endpoint - called when a client explicitly disconnects (e.g., tab close)
+ */
+app.post("/api/shutdown", async (request, reply) => {
+    const bodySchema = zod_1.z.object({
+        clientId: zod_1.z.string()
+    });
+    try {
+        const { clientId } = bodySchema.parse(request.body);
+        // Remove this client
+        activeClients.delete(clientId);
+        logger_js_1.logger.info({ clientId, remainingClients: activeClients.size }, "Client requested disconnect");
+        reply.send({ success: true });
+        // If no more clients, schedule shutdown with grace period
+        if (activeClients.size === 0) {
+            logger_js_1.logger.info({ gracePeriodMs: SHUTDOWN_GRACE_PERIOD }, "No active clients remaining, scheduling shutdown (allows time for page refresh)");
+            // Cancel any existing shutdown timer
+            if (shutdownTimer) {
+                clearTimeout(shutdownTimer);
+            }
+            // Schedule shutdown after grace period
+            shutdownTimer = setTimeout(() => {
+                // Double-check no clients reconnected during grace period
+                if (activeClients.size === 0) {
+                    logger_js_1.logger.info("Grace period expired with no reconnection, shutting down...");
+                    performGracefulShutdown();
+                }
+                else {
+                    logger_js_1.logger.info({ activeClients: activeClients.size }, "Client reconnected during grace period, shutdown canceled");
+                    shutdownTimer = null;
+                }
+            }, SHUTDOWN_GRACE_PERIOD);
+        }
+        return;
+    }
+    catch (error) {
+        reply.code(400);
+        return { error: "Invalid request" };
+    }
+});
+/**
+ * Start background monitoring for stale client connections
+ */
+function startHeartbeatMonitor() {
+    heartbeatMonitor = setInterval(() => {
+        const now = Date.now();
+        let hasStaleClients = false;
+        // Remove stale clients
+        for (const [clientId, client] of activeClients.entries()) {
+            if (now - client.lastHeartbeat > HEARTBEAT_TIMEOUT) {
+                logger_js_1.logger.warn({ clientId, staleDuration: now - client.lastHeartbeat }, "Client heartbeat timeout, removing");
+                activeClients.delete(clientId);
+                hasStaleClients = true;
+            }
+        }
+        // If all clients are gone, schedule shutdown with grace period
+        if (hasStaleClients && activeClients.size === 0 && !shutdownTimer) {
+            logger_js_1.logger.info({ gracePeriodMs: SHUTDOWN_GRACE_PERIOD }, "All clients disconnected (heartbeat timeout), scheduling shutdown");
+            shutdownTimer = setTimeout(() => {
+                if (activeClients.size === 0) {
+                    logger_js_1.logger.info("Grace period expired with no reconnection, shutting down...");
+                    performGracefulShutdown();
+                }
+                else {
+                    logger_js_1.logger.info({ activeClients: activeClients.size }, "Client reconnected during grace period, shutdown canceled");
+                    shutdownTimer = null;
+                }
+            }, SHUTDOWN_GRACE_PERIOD);
+        }
+    }, HEARTBEAT_CHECK_INTERVAL);
+    logger_js_1.logger.info({
+        heartbeatTimeout: HEARTBEAT_TIMEOUT,
+        checkInterval: HEARTBEAT_CHECK_INTERVAL,
+        gracePeriod: SHUTDOWN_GRACE_PERIOD
+    }, "Heartbeat monitor started");
+}
+/**
+ * Perform graceful shutdown of the server
+ */
+async function performGracefulShutdown() {
+    logger_js_1.logger.info("Starting graceful shutdown sequence...");
+    // Stop monitoring
+    if (heartbeatMonitor) {
+        clearInterval(heartbeatMonitor);
+        heartbeatMonitor = null;
+    }
+    if (shutdownTimer) {
+        clearTimeout(shutdownTimer);
+        shutdownTimer = null;
+    }
+    try {
+        // Close the Fastify server gracefully
+        await app.close();
+        logger_js_1.logger.info("Server closed successfully");
+    }
+    catch (error) {
+        (0, logger_js_1.logError)(error, { operation: "graceful_shutdown" });
+    }
+    finally {
+        // Exit process
+        node_process_1.default.exit(0);
+    }
+}
+// Handle process signals for clean shutdown
+node_process_1.default.on('SIGTERM', performGracefulShutdown);
+node_process_1.default.on('SIGINT', performGracefulShutdown);
+// ==================== HELPER FUNCTIONS ====================
+/**
+ * Calculate overall order status based on front and retro statuses and print counts.
+ * The order is only considered 'printed' when both sides have reached the required quantity.
+ */
+function calculateOverallStatus(fronteStatus, retroStatus, quantity = 1, frontePrintCount = 0, retroPrintCount = 0) {
+    // If either side has an error, overall is error
+    if (fronteStatus === 'error' || retroStatus === 'error') {
+        return 'error';
+    }
+    // If either side is processing, overall is processing
+    if (fronteStatus === 'processing' || retroStatus === 'processing') {
+        return 'processing';
+    }
+    // Both sides must have reached the required quantity
+    const fronteDone = fronteStatus === 'printed' && frontePrintCount >= quantity;
+    const retroDone = retroStatus === 'not_required' || (retroStatus === 'printed' && retroPrintCount >= quantity);
+    if (fronteDone && retroDone) {
+        return 'printed';
+    }
+    // Otherwise, overall is pending
+    return 'pending';
+}
+/**
+ * Update overall order status based on side statuses
+ */
+async function updateOverallStatus(orderId) {
+    const order = await db_js_1.db.select().from(schema_js_1.orders).where((0, drizzle_orm_1.eq)(schema_js_1.orders.orderId, orderId)).limit(1);
+    if (order.length === 0) {
+        return;
+    }
+    const currentOrder = order[0];
+    const newStatus = calculateOverallStatus(currentOrder.fronteStatus, currentOrder.retroStatus, currentOrder.quantity, currentOrder.frontePrintCount, currentOrder.retroPrintCount);
+    // Only update if status changed
+    if (currentOrder.status !== newStatus) {
+        await db_js_1.db
+            .update(schema_js_1.orders)
+            .set({
+            status: newStatus,
+            updatedAt: (0, drizzle_orm_1.sql) `CURRENT_TIMESTAMP`
+        })
+            .where((0, drizzle_orm_1.eq)(schema_js_1.orders.orderId, orderId))
+            .run();
+        logger_js_1.logger.info({ orderId, oldStatus: currentOrder.status, newStatus }, "Overall order status updated");
+    }
+}
+app.get("/health", async () => ({ ok: true }));
+// ==================== CONFIGURATION ENDPOINTS ====================
+/**
+ * GET /config - Returns current feed URL and templates path configuration
+ */
+app.get("/config", async () => {
+    const feedUrl = config_js_1.config.getFeedUrl();
+    const templatesPath = config_js_1.config.getTemplatesPath();
+    logger_js_1.logger.info({ feedUrl, templatesPath }, "Configuration retrieved");
+    return { feedUrl, templatesPath };
+});
+/**
+ * POST /config - Updates feed URL and/or templates path configuration
+ */
+app.post("/config", async (request, reply) => {
+    const bodySchema = zod_1.z.object({
+        feedUrl: zod_1.z.string().min(1).optional(),
+        templatesPath: zod_1.z.string().optional()
+    });
+    try {
+        const body = bodySchema.parse(request.body);
+        // Handle feedUrl if provided
+        if (body.feedUrl !== undefined) {
+            const rawFeedUrl = body.feedUrl;
+            // Trim whitespace
+            const feedUrl = rawFeedUrl.trim();
+            // Validate: must be either a valid HTTP/HTTPS URL or an absolute file path
+            let isValid = false;
+            let validationType = '';
+            // Check if it's an HTTP/HTTPS URL
+            if (feedUrl.startsWith('http://') || feedUrl.startsWith('https://')) {
+                try {
+                    new URL(feedUrl);
+                    isValid = true;
+                    validationType = 'HTTP URL';
+                }
+                catch {
+                    // Not a valid URL
+                }
+            }
+            // If not a valid HTTP URL, check if it's an absolute file path
+            if (!isValid) {
+                // Check for absolute paths (both Windows and Unix style)
+                const isAbsolute = node_path_1.default.isAbsolute(feedUrl) || /^[a-zA-Z]:[\\\/]/.test(feedUrl);
+                if (isAbsolute) {
+                    isValid = true;
+                    validationType = 'Absolute file path';
+                }
+            }
+            if (!isValid) {
+                logger_js_1.logger.warn({ feedUrl }, "Invalid feed URL provided");
+                reply.code(400);
+                return {
+                    error: "Feed must be a valid HTTP URL or an absolute file path."
+                };
+            }
+            // Log the change
+            const oldFeedUrl = config_js_1.config.getFeedUrl();
+            logger_js_1.logger.info({ oldFeedUrl, newFeedUrl: feedUrl, validationType }, "Feed URL configuration updated");
+            // Update config
+            config_js_1.config.setFeedUrl(feedUrl);
+        }
+        // Handle templatesPath if provided (even if empty string)
+        if (body.templatesPath !== undefined) {
+            try {
+                config_js_1.config.setTemplatesPath(body.templatesPath);
+                logger_js_1.logger.info({ templatesPath: config_js_1.config.getTemplatesPath() }, "Templates path updated");
+            }
+            catch (error) {
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                logger_js_1.logger.error({ error: errorMessage }, "Failed to set templates path");
+                reply.code(400);
+                return {
+                    success: false,
+                    message: errorMessage
+                };
+            }
+        }
+        return {
+            success: true,
+            feedUrl: config_js_1.config.getFeedUrl(),
+            templatesPath: config_js_1.config.getTemplatesPath()
+        };
+    }
+    catch (error) {
+        logger_js_1.logger.error({ error }, "Failed to update configuration");
+        reply.code(400);
+        return {
+            error: error instanceof Error ? error.message : "Invalid request body"
+        };
+    }
+});
+/**
+ * POST /config/test - Tests feed connection without saving
+ */
+app.post("/config/test", async (request, reply) => {
+    const bodySchema = zod_1.z.object({
+        feedUrl: zod_1.z.string().min(1)
+    });
+    try {
+        const { feedUrl: rawFeedUrl } = bodySchema.parse(request.body);
+        // Trim whitespace
+        const feedUrl = rawFeedUrl.trim();
+        logger_js_1.logger.info({ feedUrl }, "Testing feed connection");
+        // Determine if it's HTTP/HTTPS or file path
+        const isHttp = feedUrl.startsWith('http://') || feedUrl.startsWith('https://');
+        if (isHttp) {
+            // Test HTTP/HTTPS connection with GET request
+            // Using GET instead of HEAD because some dynamic URLs (like Google Apps Script)
+            // reject HEAD requests with 403 but accept GET requests
+            try {
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+                const response = await fetch(feedUrl, {
+                    method: 'GET',
+                    signal: controller.signal
+                });
+                clearTimeout(timeout);
+                if (response.ok) {
+                    // Read only first 500 bytes to avoid downloading large feeds
+                    // This verifies the feed is accessible without consuming too much bandwidth
+                    try {
+                        const reader = response.body?.getReader();
+                        if (reader) {
+                            await reader.read();
+                            reader.releaseLock();
+                        }
+                    }
+                    catch (readError) {
+                        // If we can't read the body, that's fine - the HTTP status was OK
+                        logger_js_1.logger.debug({ feedUrl }, "Could not read response body, but status was OK");
+                    }
+                    logger_js_1.logger.info({ feedUrl, status: response.status }, "HTTP feed connection successful");
+                    return {
+                        success: true,
+                        message: "Feed is accessible (HTTP GET successful)"
+                    };
+                }
+                else {
+                    // Special handling for 403/405 errors which may indicate dynamic URLs
+                    if (response.status === 403 || response.status === 405) {
+                        logger_js_1.logger.warn({ feedUrl, status: response.status }, "Feed rejected connection test");
+                        reply.code(400);
+                        return {
+                            success: false,
+                            message: `Could not access feed: HTTP ${response.status}. Feed rejected the connection test. This may be a dynamic URL that only responds to full requests. Try saving and running Sync to verify.`
+                        };
+                    }
+                    logger_js_1.logger.warn({ feedUrl, status: response.status }, "HTTP feed returned non-OK status");
+                    reply.code(400);
+                    return {
+                        success: false,
+                        message: `Could not access feed: HTTP ${response.status} ${response.statusText}`
+                    };
+                }
+            }
+            catch (error) {
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                logger_js_1.logger.error({ feedUrl, error: errorMessage }, "HTTP feed connection failed");
+                reply.code(400);
+                return {
+                    success: false,
+                    message: `Could not access feed: ${errorMessage}`
+                };
+            }
+        }
+        else {
+            // Test file path
+            try {
+                // Check if path is absolute
+                const isAbsolute = node_path_1.default.isAbsolute(feedUrl) || /^[a-zA-Z]:[\\\/]/.test(feedUrl);
+                if (!isAbsolute) {
+                    logger_js_1.logger.warn({ feedUrl }, "File path is not absolute");
+                    reply.code(400);
+                    return {
+                        success: false,
+                        message: "Could not access feed: File path must be absolute"
+                    };
+                }
+                // Check if file exists
+                if (!fs_extra_1.default.existsSync(feedUrl)) {
+                    logger_js_1.logger.warn({ feedUrl }, "File does not exist");
+                    reply.code(400);
+                    return {
+                        success: false,
+                        message: `Could not access feed: File does not exist at path: ${feedUrl}`
+                    };
+                }
+                // Check if file is readable
+                try {
+                    fs_extra_1.default.accessSync(feedUrl, fs_extra_1.default.constants.R_OK);
+                }
+                catch {
+                    logger_js_1.logger.warn({ feedUrl }, "File is not readable");
+                    reply.code(400);
+                    return {
+                        success: false,
+                        message: `Could not access feed: File exists but is not readable`
+                    };
+                }
+                logger_js_1.logger.info({ feedUrl }, "File feed connection successful");
+                return {
+                    success: true,
+                    message: "Connection successful"
+                };
+            }
+            catch (error) {
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                logger_js_1.logger.error({ feedUrl, error: errorMessage }, "File feed connection test failed");
+                reply.code(400);
+                return {
+                    success: false,
+                    message: `Could not access feed: ${errorMessage}`
+                };
+            }
+        }
+    }
+    catch (error) {
+        logger_js_1.logger.error({ error }, "Feed connection test request failed");
+        reply.code(400);
+        return {
+            error: error instanceof Error ? error.message : "Invalid request body"
+        };
+    }
+});
+app.post("/sync", async (request, reply) => {
+    try {
+        logger_js_1.logger.info("Sync request received");
+        const result = await (0, sync_js_1.syncOrders)();
+        logger_js_1.logger.info({
+            added: result.added,
+            duplicates: result.duplicates,
+            deleted: result.deleted,
+            skipped: result.skipped,
+            totalParsed: result.totalParsed
+        }, "Sync completed successfully");
+        // Start background hydration of Amazon Custom data (non-blocking)
+        (0, sync_js_1.startBackgroundHydration)();
+        return result;
+    }
+    catch (error) {
+        (0, logger_js_1.logError)(error, { operation: "sync" });
+        reply.code(500);
+        return {
+            error: error instanceof Error ? error.message : "Sync failed"
+        };
+    }
+});
+app.get("/orders", async (request) => {
+    const querySchema = zod_1.z.object({
+        limit: zod_1.z.coerce.number().int().min(1).max(10000).default(10000),
+        offset: zod_1.z.coerce.number().int().min(0).default(0),
+        search: zod_1.z.string().optional(),
+        hasCustomField: zod_1.z.coerce.boolean().optional(),
+        status: zod_1.z.enum(["pending", "processing", "printed", "error"]).optional(),
+        excludeStatus: zod_1.z.enum(["pending", "processing", "printed", "error"]).optional()
+    });
+    const { limit, offset, search, hasCustomField, status, excludeStatus } = querySchema.parse(request.query ?? {});
+    const conditions = [];
+    if (search) {
+        conditions.push((0, drizzle_orm_1.like)(schema_js_1.orders.orderId, `%${search}%`));
+    }
+    if (hasCustomField === true) {
+        // Include orders with either old-style custom_field, Amazon Custom data already
+        // hydrated, OR a zipUrl present (hydration pending — orders are still customized).
+        conditions.push((0, drizzle_orm_1.sql) `(
+        (${schema_js_1.orders.customField} is not null and ${schema_js_1.orders.customField} != '') OR
+        (${schema_js_1.orders.customDataSynced} = 1) OR
+        (${schema_js_1.orders.zipUrl} is not null and ${schema_js_1.orders.zipUrl} != '')
+      )`);
+    }
+    if (status) {
+        // With the new enum-based status, filter by exact match
+        conditions.push((0, drizzle_orm_1.eq)(schema_js_1.orders.status, status));
+    }
+    if (excludeStatus) {
+        // For side-specific filtering, exclude only if BOTH sides are fully done
+        // (i.e. each side's print count has reached the required quantity)
+        if (excludeStatus === 'printed') {
+            conditions.push((0, drizzle_orm_1.sql) `NOT (
+          ${schema_js_1.orders.fronteStatus} = 'printed'
+          AND ${schema_js_1.orders.frontePrintCount} >= ${schema_js_1.orders.quantity}
+          AND (
+            ${schema_js_1.orders.retroStatus} = 'not_required'
+            OR (${schema_js_1.orders.retroStatus} = 'printed' AND ${schema_js_1.orders.retroPrintCount} >= ${schema_js_1.orders.quantity})
+          )
+        )`);
+        }
+        else {
+            conditions.push((0, drizzle_orm_1.ne)(schema_js_1.orders.status, excludeStatus));
+        }
+    }
+    const where = conditions.length ? (0, drizzle_orm_1.and)(...conditions) : undefined;
+    const items = await db_js_1.db
+        .select()
+        .from(schema_js_1.orders)
+        .where(where)
+        .limit(limit)
+        .offset(offset)
+        .orderBy(schema_js_1.orders.id);
+    // Detect color for each order
+    const colorRules = await db_js_1.db
+        .select()
+        .from(schema_js_1.assetRules)
+        .where((0, drizzle_orm_1.eq)(schema_js_1.assetRules.assetType, 'color'))
+        .all();
+    const itemsWithColor = items.map(order => {
+        let detectedColor = null;
+        if (order.customField) {
+            const normalizedField = order.customField.toLowerCase();
+            for (const rule of colorRules) {
+                if (normalizedField.includes(rule.triggerKeyword.toLowerCase())) {
+                    detectedColor = rule.value;
+                    break;
+                }
+            }
+        }
+        return { ...order, detectedColor };
+    });
+    return { items: itemsWithColor, limit, offset };
+});
+const paramsSchema = zod_1.z.object({
+    orderId: zod_1.z.string().min(1)
+});
+const itemParamsSchema = zod_1.z.object({
+    orderItemId: zod_1.z.string().min(1)
+});
+/**
+ * Handle side-specific LightBurn processing (front or retro).
+ * When lookupByItemId is true, resolves the order via orderItemId (unique per item).
+ * When false (default), resolves via orderId (legacy/retry path).
+ */
+const handleSideProcessing = async (request, reply, side, lookupByItemId = false) => {
+    const lookupValue = lookupByItemId
+        ? itemParamsSchema.parse(request.params).orderItemId
+        : paramsSchema.parse(request.params).orderId;
+    const sideLabel = side === 'retro' ? 'retro' : 'fronte';
+    const endpoint = side === 'retro' ? '/lightburn/retro' : '/lightburn/front';
+    console.log('=== HANDLE SIDE PROCESSING START ===');
+    console.log('Lookup value:', lookupValue);
+    console.log('Lookup by item ID:', lookupByItemId);
+    console.log('Side:', side);
+    console.log('Side label:', sideLabel);
+    console.log('Endpoint:', endpoint);
+    // Fetch the order from database
+    console.log('Fetching order from database...');
+    const rows = await db_js_1.db
+        .select()
+        .from(schema_js_1.orders)
+        .where(lookupByItemId
+        ? (0, drizzle_orm_1.eq)(schema_js_1.orders.orderItemId, lookupValue)
+        : (0, drizzle_orm_1.eq)(schema_js_1.orders.orderId, lookupValue))
+        .limit(1);
+    const order = rows[0];
+    // Use the real orderId from the fetched row for all logging and overall-status updates
+    const orderId = order?.orderId ?? lookupValue;
+    console.log('Order found:', order);
+    if (!order) {
+        console.log('ERROR: Order not found in database');
+        logger_js_1.logger.warn({ orderId }, "Order not found in database");
+        reply.code(404);
+        return { error: "Order not found" };
+    }
+    // Get side-specific status fields
+    const statusField = side === 'retro' ? 'retroStatus' : 'fronteStatus';
+    const errorField = side === 'retro' ? 'retroErrorMessage' : 'fronteErrorMessage';
+    const attemptField = side === 'retro' ? 'retroAttemptCount' : 'fronteAttemptCount';
+    const processedField = side === 'retro' ? 'retroProcessedAt' : 'fronteProcessedAt';
+    const currentStatus = order[statusField];
+    const currentAttemptCount = order[attemptField];
+    console.log('Current status:', currentStatus);
+    console.log('Current attempt count:', currentAttemptCount);
+    logger_js_1.logger.info({
+        id: order.id,
+        orderId: order.orderId,
+        sku: order.sku,
+        side: sideLabel,
+        status: currentStatus,
+        attemptCount: currentAttemptCount
+    }, "Order found, validating status");
+    // ==================== PHASE 1: PRE-FLIGHT VALIDATION ====================
+    // Check if retro is not required (but allow if there's actual retro custom data)
+    if (side === 'retro' && currentStatus === 'not_required') {
+        // Check if order has Amazon Custom retro data
+        const hasRetroCustomData = Boolean(order.backText1 ||
+            order.backText2 ||
+            order.backText3 ||
+            order.backText4);
+        if (!hasRetroCustomData) {
+            logger_js_1.logger.warn({ orderId, status: currentStatus }, "Retro processing requested but retro is not required for this order");
+            reply.code(400);
+            return {
+                error: "Retro side is not required for this order",
+                status: currentStatus
+            };
+        }
+        else {
+            // Has retro custom data, allow processing and update status from not_required to pending
+            logger_js_1.logger.info({ orderId, backText1: order.backText1, backText2: order.backText2 }, "Retro marked as not_required but has custom data, allowing processing");
+        }
+    }
+    // Check if side is already being processed
+    if (currentStatus === 'processing') {
+        logger_js_1.logger.warn({ orderId, side: sideLabel, status: currentStatus }, `${sideLabel} side is already being processed`);
+        reply.code(409);
+        return {
+            error: `${sideLabel} side is already being processed. Please wait or refresh to see the latest status.`,
+            status: currentStatus,
+            attemptCount: currentAttemptCount
+        };
+    }
+    // Check if side was already printed (allow retry with warning)
+    if (currentStatus === 'printed') {
+        logger_js_1.logger.warn({ orderId, side: sideLabel, status: currentStatus, processedAt: order[processedField] }, `${sideLabel} è già stato stampato, permettendo il ripristino`);
+    }
+    // Migrate old configuration errors to new format
+    if (currentStatus === 'error' && order[errorField]) {
+        const configErrorPattern = /NO_TEMPLATE_MATCH:|TEMPLATE_FILE_NOT_FOUND:|no template|configuration required|template.*not found/i;
+        const isOldConfigError = configErrorPattern.test(order[errorField]) &&
+            !order[errorField].startsWith('CONFIG_ERROR:');
+        if (isOldConfigError) {
+            logger_js_1.logger.info({ orderId, side: sideLabel, oldErrorMessage: order[errorField] }, "Migrating old config error to new format");
+            const updateData = {
+                [errorField]: `CONFIG_ERROR: ${order[errorField]}`,
+                [attemptField]: 999,
+                updatedAt: (0, drizzle_orm_1.sql) `CURRENT_TIMESTAMP`
+            };
+            await db_js_1.db.update(schema_js_1.orders)
+                .set(updateData)
+                .where((0, drizzle_orm_1.eq)(schema_js_1.orders.id, order.id))
+                .run();
+            logger_js_1.logger.info({ orderId, side: sideLabel }, "Migrated old config error to new format");
+            // Update local order object
+            order[errorField] = `CONFIG_ERROR: ${order[errorField]}`;
+            order[attemptField] = 999;
+        }
+    }
+    // ==================== PHASE 2: SET PROCESSING STATE ====================
+    logger_js_1.logger.info({ orderId, side: sideLabel, previousStatus: currentStatus, currentAttemptCount }, `Setting ${sideLabel} status to 'processing'`);
+    const updateData = {
+        [statusField]: 'processing',
+        [errorField]: null,
+        updatedAt: (0, drizzle_orm_1.sql) `CURRENT_TIMESTAMP`
+    };
+    const updateResult = await db_js_1.db
+        .update(schema_js_1.orders)
+        .set(updateData)
+        .where((0, drizzle_orm_1.eq)(schema_js_1.orders.id, order.id))
+        .run();
+    if (updateResult.changes === 0) {
+        logger_js_1.logger.error({ orderId, side: sideLabel }, `Failed to update ${sideLabel} status to 'processing'`);
+        reply.code(500);
+        return { error: `Failed to lock ${sideLabel} side for processing` };
+    }
+    logger_js_1.logger.info({ orderId, side: sideLabel, status: 'processing', attemptCount: currentAttemptCount }, `${sideLabel} side locked for processing`);
+    // Use config path for templates directory (native Windows path)
+    const defaultTemplatePath = node_path_1.default.join(config_js_1.config.getTemplatesPath(), `targhetta-osso-${sideLabel}.lbrn2`);
+    // ==================== PHASE 3: PROCESS WITH VERIFICATION ====================
+    try {
+        console.log('About to generate project');
+        console.log('Template path:', defaultTemplatePath);
+        console.log('Side:', side);
+        logger_js_1.logger.info({ orderId, side: sideLabel, templatePath: defaultTemplatePath }, "Starting LightBurn project generation");
+        const result = await (0, lightburn_js_1.generateLightBurnProject)(order, defaultTemplatePath, side);
+        logger_js_1.logger.info({
+            orderId: result.orderId,
+            side: sideLabel,
+            filePath: result.filePath
+        }, `LightBurn project generated successfully for ${sideLabel} side`);
+        // Determine the print count field to increment for this side
+        const printCountField = side === 'front' ? 'frontePrintCount' : 'retroPrintCount';
+        // Update the side status to 'printed' with timestamp, and increment the print count
+        const successUpdateData = {
+            [statusField]: 'printed',
+            [processedField]: (0, drizzle_orm_1.sql) `CURRENT_TIMESTAMP`,
+            [errorField]: null,
+            [printCountField]: (0, drizzle_orm_1.sql) `${side === 'front' ? schema_js_1.orders.frontePrintCount : schema_js_1.orders.retroPrintCount} + 1`,
+            updatedAt: (0, drizzle_orm_1.sql) `CURRENT_TIMESTAMP`
+        };
+        const finalUpdateResult = await db_js_1.db
+            .update(schema_js_1.orders)
+            .set(successUpdateData)
+            .where((0, drizzle_orm_1.eq)(schema_js_1.orders.id, order.id))
+            .run();
+        if (finalUpdateResult.changes === 0) {
+            logger_js_1.logger.error({ orderId, side: sideLabel }, `Failed to update ${sideLabel} status to 'printed'`);
+        }
+        else {
+            logger_js_1.logger.info({ orderId, side: sideLabel, status: 'printed', attemptCount: currentAttemptCount }, `${sideLabel} status updated to 'printed'`);
+        }
+        // Update overall order status
+        await updateOverallStatus(orderId);
+        logger_js_1.logger.info({
+            orderId,
+            side: sideLabel,
+            status: 'printed',
+            attemptCount: currentAttemptCount,
+            errorType: 'none'
+        }, `Final ${sideLabel} state after processing (success)`);
+        return {
+            success: true,
+            side: sideLabel,
+            orderId: result.orderId,
+            filePath: result.filePath,
+            message: `LightBurn project generated and launched successfully for ${sideLabel} side`,
+            warning: currentStatus === 'printed' ? `Questo ${sideLabel} è già stato stampato. Ristampato con successo.` : undefined
+        };
+    }
+    catch (error) {
+        // ==================== PHASE 4: ERROR HANDLING WITH SMART RETRY ====================
+        console.log('ERROR CAUGHT:', error instanceof Error ? error.message : String(error));
+        console.log('Error type:', error instanceof Error ? error.constructor.name : typeof error);
+        console.log('Full error object:', error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        // LOG: Exact error message caught
+        logger_js_1.logger.error({
+            orderId,
+            side: sideLabel,
+            endpoint,
+            errorMessage,
+            errorType: error instanceof Error ? error.constructor.name : typeof error,
+            errorStack: error instanceof Error ? error.stack : undefined
+        }, `=== ERROR CAUGHT in ${sideLabel} side processing ===`);
+        logger_js_1.logger.error({
+            orderId,
+            side: sideLabel,
+            endpoint,
+            errorMessage
+        }, "Exact error message caught");
+        // Classify error type
+        const configErrorPattern = /NO_TEMPLATE_MATCH:|TEMPLATE_FILE_NOT_FOUND:|no template|configuration required|template.*not found/i;
+        const isConfigError = configErrorPattern.test(errorMessage);
+        // LOG: Error classification result
+        logger_js_1.logger.info({
+            orderId,
+            side: sideLabel,
+            endpoint,
+            isConfigError,
+            errorMessage,
+            classificationPattern: configErrorPattern.toString(),
+            reason: isConfigError
+                ? "Error message matches configuration error pattern"
+                : "Error message does NOT match configuration error pattern"
+        }, "Error classification result (isConfigError = " + isConfigError + ")");
+        // Build update object based on error type
+        let errorUpdateData;
+        if (isConfigError) {
+            // Configuration error - no retry, requires manual fix
+            errorUpdateData = {
+                [statusField]: 'error',
+                [errorField]: errorMessage.startsWith('CONFIG_ERROR:')
+                    ? errorMessage
+                    : 'CONFIG_ERROR: ' + errorMessage,
+                [attemptField]: 999,
+                updatedAt: (0, drizzle_orm_1.sql) `CURRENT_TIMESTAMP`
+            };
+            logger_js_1.logger.warn({ orderId, side: sideLabel, sku: order.sku }, "Errore Configurazione - richiede intervento manuale");
+        }
+        else {
+            // Transient error - use retry logic
+            const newAttemptCount = (currentAttemptCount || 0) + 1;
+            const shouldRetry = newAttemptCount < 3;
+            errorUpdateData = {
+                [statusField]: shouldRetry ? 'pending' : 'error',
+                [errorField]: errorMessage,
+                [attemptField]: newAttemptCount,
+                updatedAt: (0, drizzle_orm_1.sql) `CURRENT_TIMESTAMP`
+            };
+            logger_js_1.logger.info({ orderId, side: sideLabel, newAttemptCount, shouldRetry }, "Transient error - retry logic applied");
+        }
+        // Execute the database update
+        await db_js_1.db.update(schema_js_1.orders)
+            .set(errorUpdateData)
+            .where((0, drizzle_orm_1.eq)(schema_js_1.orders.id, order.id))
+            .run();
+        logger_js_1.logger.info({ orderId, side: sideLabel, finalStatus: errorUpdateData[statusField], attemptCount: errorUpdateData[attemptField] }, `${sideLabel} state updated in database`);
+        // Update overall order status
+        await updateOverallStatus(orderId);
+        // Verification logging
+        const verifyOrder = await db_js_1.db.select()
+            .from(schema_js_1.orders)
+            .where((0, drizzle_orm_1.eq)(schema_js_1.orders.id, order.id))
+            .limit(1);
+        logger_js_1.logger.info({
+            orderId,
+            side: sideLabel,
+            dbStatus: verifyOrder[0]?.[statusField],
+            dbAttemptCount: verifyOrder[0]?.[attemptField],
+            dbErrorMessage: verifyOrder[0]?.[errorField]
+        }, "Database state verification");
+        // Return appropriate error response
+        if (isConfigError) {
+            reply.code(400);
+        }
+        else {
+            reply.code(500);
+        }
+        return {
+            error: errorMessage,
+            side: sideLabel,
+            errorType: isConfigError ? 'configuration' : 'transient',
+            status: errorUpdateData[statusField],
+            attemptCount: errorUpdateData[attemptField]
+        };
+    }
+};
+const handleLightburn = async (request, reply) => {
+    const { orderId } = paramsSchema.parse(request.params);
+    logger_js_1.logger.info({ orderId }, "LightBurn generation requested");
+    // Fetch the order from database
+    const rows = await db_js_1.db
+        .select()
+        .from(schema_js_1.orders)
+        .where((0, drizzle_orm_1.eq)(schema_js_1.orders.orderId, orderId))
+        .limit(1);
+    const order = rows[0];
+    if (!order) {
+        logger_js_1.logger.warn({ orderId }, "Order not found in database");
+        reply.code(404);
+        return { error: "Order not found" };
+    }
+    logger_js_1.logger.info({
+        id: order.id,
+        orderId: order.orderId,
+        sku: order.sku,
+        buyerName: order.buyerName,
+        status: order.status,
+        attemptCount: order.attemptCount
+    }, "Order found, validating status");
+    // ==================== PHASE 1: PRE-FLIGHT VALIDATION ====================
+    // Check if order is already being processed
+    if (order.status === 'processing') {
+        logger_js_1.logger.warn({ orderId, status: order.status }, "Order is already being processed by another operator");
+        reply.code(409); // Conflict
+        return {
+            error: "Order is already being processed by another operator. Please wait or refresh to see the latest status.",
+            status: order.status,
+            attemptCount: order.attemptCount
+        };
+    }
+    // Check if order was already printed (allow retry with warning)
+    if (order.status === 'printed') {
+        logger_js_1.logger.warn({ orderId, status: order.status, processedAt: order.processedAt }, "Order was already printed, allowing retry");
+        // Continue processing but we'll return a warning in the response
+    }
+    // Migrate old configuration errors to new format
+    if (order.status === 'error' && order.errorMessage) {
+        const configErrorPattern = /NO_TEMPLATE_MATCH:|TEMPLATE_FILE_NOT_FOUND:|no template|configuration required|template.*not found/i;
+        const isOldConfigError = configErrorPattern.test(order.errorMessage) &&
+            !order.errorMessage.startsWith('CONFIG_ERROR:');
+        if (isOldConfigError) {
+            logger_js_1.logger.info({ orderId, oldErrorMessage: order.errorMessage }, "Migrating old config error to new format");
+            // Update to new format
+            db_js_1.db.update(schema_js_1.orders)
+                .set({
+                errorMessage: `CONFIG_ERROR: ${order.errorMessage}`,
+                attemptCount: 999,
+                updatedAt: (0, drizzle_orm_1.sql) `CURRENT_TIMESTAMP`
+            })
+                .where((0, drizzle_orm_1.eq)(schema_js_1.orders.orderId, orderId))
+                .run();
+            logger_js_1.logger.info({ orderId }, "Migrated old config error to new format");
+            // Update local order object to reflect migration
+            order.errorMessage = `CONFIG_ERROR: ${order.errorMessage}`;
+            order.attemptCount = 999;
+        }
+    }
+    // ==================== PHASE 2: SET PROCESSING STATE ====================
+    logger_js_1.logger.info({ orderId, previousStatus: order.status, currentAttemptCount: order.attemptCount }, "Setting order status to 'processing'");
+    // Update to 'processing' - DO NOT increment attemptCount here (only in catch block for transient errors)
+    const updateResult = await db_js_1.db
+        .update(schema_js_1.orders)
+        .set({
+        status: 'processing',
+        errorMessage: null, // Clear previous error message
+        updatedAt: (0, drizzle_orm_1.sql) `CURRENT_TIMESTAMP`
+    })
+        .where((0, drizzle_orm_1.eq)(schema_js_1.orders.orderId, orderId))
+        .run();
+    if (updateResult.changes === 0) {
+        logger_js_1.logger.error({ orderId }, "Failed to update order status to 'processing'");
+        reply.code(500);
+        return { error: "Failed to lock order for processing" };
+    }
+    logger_js_1.logger.info({ orderId, status: 'processing', attemptCount: order.attemptCount }, "Order locked for processing");
+    // Use config path for templates directory (native Windows path)
+    const defaultTemplatePath = node_path_1.default.join(config_js_1.config.getTemplatesPath(), "targhetta-osso-fronte.lbrn2");
+    // ==================== PHASE 3: PROCESS WITH VERIFICATION ====================
+    try {
+        logger_js_1.logger.info({ orderId, templatePath: defaultTemplatePath }, "Starting LightBurn project generation");
+        const result = await (0, lightburn_js_1.generateLightBurnProject)(order, defaultTemplatePath);
+        logger_js_1.logger.info({
+            orderId: result.orderId,
+            filePath: result.filePath
+        }, "LightBurn project generated successfully");
+        // Update the order status to 'printed' with timestamp
+        const finalUpdateResult = db_js_1.db
+            .update(schema_js_1.orders)
+            .set({
+            status: 'printed',
+            processedAt: (0, drizzle_orm_1.sql) `CURRENT_TIMESTAMP`,
+            errorMessage: null,
+            updatedAt: (0, drizzle_orm_1.sql) `CURRENT_TIMESTAMP`
+        })
+            .where((0, drizzle_orm_1.eq)(schema_js_1.orders.orderId, orderId))
+            .run();
+        if (finalUpdateResult.changes === 0) {
+            logger_js_1.logger.error({ orderId }, "Failed to update order status to 'printed' after successful generation");
+        }
+        else {
+            logger_js_1.logger.info({ orderId, status: 'printed', attemptCount: order.attemptCount }, "Order status updated to 'printed'");
+        }
+        // Step 4: Final state verification logging (success path)
+        logger_js_1.logger.info({
+            orderId,
+            status: 'printed',
+            attemptCount: order.attemptCount,
+            errorType: 'none'
+        }, "Final order state after processing (success)");
+        return {
+            success: true,
+            orderId: result.orderId,
+            filePath: result.filePath,
+            message: "LightBurn project generated and launched successfully",
+            warning: order.status === 'printed' ? "This order was already marked as printed. Reprocessed successfully." : undefined
+        };
+    }
+    catch (error) {
+        // ==================== PHASE 4: ERROR HANDLING WITH SMART RETRY ====================
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        logger_js_1.logger.error({
+            orderId,
+            errorMessage,
+            errorStack: error instanceof Error ? error.stack : undefined
+        }, "generateLightBurnProject failed");
+        // Classify error type FIRST
+        const configErrorPattern = /NO_TEMPLATE_MATCH:|TEMPLATE_FILE_NOT_FOUND:|no template|configuration required|template.*not found/i;
+        const isConfigError = configErrorPattern.test(errorMessage);
+        logger_js_1.logger.info({ orderId, isConfigError, errorMessage }, "Error classification result");
+        // Build update object based on error type
+        let updateData;
+        if (isConfigError) {
+            // Configuration error - no retry, requires manual fix
+            updateData = {
+                status: 'error',
+                errorMessage: errorMessage.startsWith('CONFIG_ERROR:')
+                    ? errorMessage
+                    : 'CONFIG_ERROR: ' + errorMessage,
+                attemptCount: 999,
+                updatedAt: (0, drizzle_orm_1.sql) `CURRENT_TIMESTAMP`
+            };
+            logger_js_1.logger.warn({ orderId, sku: order.sku }, "Configuration error - requires manual intervention");
+        }
+        else {
+            // Transient error - use retry logic
+            const newAttemptCount = (order.attemptCount || 0) + 1;
+            const shouldRetry = newAttemptCount < 3;
+            updateData = {
+                status: shouldRetry ? 'pending' : 'error',
+                errorMessage: errorMessage,
+                attemptCount: newAttemptCount,
+                updatedAt: (0, drizzle_orm_1.sql) `CURRENT_TIMESTAMP`
+            };
+            logger_js_1.logger.info({ orderId, newAttemptCount, shouldRetry }, "Transient error - retry logic applied");
+        }
+        // Execute the database update and WAIT for it
+        await db_js_1.db.update(schema_js_1.orders)
+            .set(updateData)
+            .where((0, drizzle_orm_1.eq)(schema_js_1.orders.orderId, orderId))
+            .run();
+        logger_js_1.logger.info({ orderId, finalStatus: updateData.status, attemptCount: updateData.attemptCount }, "Order state updated in database");
+        // Part 3: Verification logging - query database to confirm update
+        const verifyOrder = await db_js_1.db.select()
+            .from(schema_js_1.orders)
+            .where((0, drizzle_orm_1.eq)(schema_js_1.orders.orderId, orderId))
+            .limit(1);
+        logger_js_1.logger.info({
+            orderId,
+            dbStatus: verifyOrder[0]?.status,
+            dbAttemptCount: verifyOrder[0]?.attemptCount,
+            dbErrorMessage: verifyOrder[0]?.errorMessage
+        }, "Database state verification");
+        // Return appropriate error response
+        if (isConfigError) {
+            reply.code(400);
+        }
+        else {
+            reply.code(500);
+        }
+        return {
+            error: errorMessage,
+            errorType: isConfigError ? 'configuration' : 'transient',
+            status: updateData.status,
+            attemptCount: updateData.attemptCount
+        };
+    }
+};
+app.post("/orders/:orderId/lightburn", async (request, reply) => {
+    return handleLightburn(request, reply);
+});
+// Side-specific processing by orderId (legacy — used by retry/error-modal flow)
+app.post("/orders/:orderId/lightburn/front", async (request, reply) => {
+    return handleSideProcessing(request, reply, 'front');
+});
+app.post("/orders/:orderId/lightburn/retro", async (request, reply) => {
+    return handleSideProcessing(request, reply, 'retro');
+});
+// Side-specific processing by orderItemId (preferred — unique per item in grouped orders)
+app.post("/orders/item/:orderItemId/lightburn/front", async (request, reply) => {
+    return handleSideProcessing(request, reply, 'front', true);
+});
+app.post("/orders/item/:orderItemId/lightburn/retro", async (request, reply) => {
+    return handleSideProcessing(request, reply, 'retro', true);
+});
+// Check if retro template is available for an order
+app.get("/orders/:orderId/retro-available", async (request, reply) => {
+    const { orderId } = paramsSchema.parse(request.params);
+    const rows = await db_js_1.db
+        .select()
+        .from(schema_js_1.orders)
+        .where((0, drizzle_orm_1.eq)(schema_js_1.orders.orderId, orderId))
+        .limit(1);
+    const order = rows[0];
+    if (!order) {
+        reply.code(404);
+        return { error: "Order not found" };
+    }
+    const available = await (0, lightburn_js_1.hasRetroTemplate)(order.sku);
+    return {
+        orderId: order.orderId,
+        sku: order.sku,
+        retroAvailable: available,
+        retroStatus: order.retroStatus
+    };
+});
+app.post("/orders/:orderId/ezcad", async (request, reply) => {
+    const result = await handleLightburn(request, reply);
+    return { ...result, warning: "Deprecated; use /lightburn" };
+});
+// Retry failed order endpoint
+app.post("/orders/:orderId/retry", async (request, reply) => {
+    const { orderId } = paramsSchema.parse(request.params);
+    logger_js_1.logger.info({ orderId }, "Order retry requested");
+    // Find the order
+    const rows = await db_js_1.db
+        .select()
+        .from(schema_js_1.orders)
+        .where((0, drizzle_orm_1.eq)(schema_js_1.orders.orderId, orderId))
+        .limit(1);
+    const order = rows[0];
+    if (!order) {
+        logger_js_1.logger.warn({ orderId }, "Order not found for retry");
+        reply.code(404);
+        return { error: "Order not found" };
+    }
+    logger_js_1.logger.info({ orderId, currentStatus: order.status, attemptCount: order.attemptCount }, "Order found, validating retry eligibility");
+    // Validate that order is not currently processing
+    if (order.status === 'processing') {
+        logger_js_1.logger.warn({ orderId, status: order.status }, "Cannot retry order that is currently processing");
+        reply.code(400);
+        return {
+            error: "Cannot retry order that is currently being processed. Please wait for the current process to complete.",
+            status: order.status
+        };
+    }
+    // Validate that order is in error or printed state (allow retry for printed orders too)
+    if (order.status !== 'error' && order.status !== 'printed') {
+        logger_js_1.logger.warn({ orderId, status: order.status }, "Order is not in error or printed state");
+        reply.code(400);
+        return {
+            error: `Order cannot be retried from '${order.status}' status. Only 'error' or 'printed' orders can be retried.`,
+            status: order.status
+        };
+    }
+    const previousStatus = order.status;
+    const previousAttemptCount = order.attemptCount;
+    logger_js_1.logger.info({ orderId, previousStatus, previousAttemptCount }, "Resetting order state for retry");
+    // Reset the order state
+    const updateResult = db_js_1.db
+        .update(schema_js_1.orders)
+        .set({
+        status: 'pending',
+        errorMessage: null,
+        attemptCount: 0,
+        updatedAt: (0, drizzle_orm_1.sql) `CURRENT_TIMESTAMP`
+    })
+        .where((0, drizzle_orm_1.eq)(schema_js_1.orders.orderId, orderId))
+        .run();
+    if (updateResult.changes === 0) {
+        logger_js_1.logger.error({ orderId }, "Failed to reset order state for retry");
+        reply.code(500);
+        return { error: "Failed to reset order for retry" };
+    }
+    // Fetch the updated order
+    const updatedRows = await db_js_1.db
+        .select()
+        .from(schema_js_1.orders)
+        .where((0, drizzle_orm_1.eq)(schema_js_1.orders.orderId, orderId))
+        .limit(1);
+    const updatedOrder = updatedRows[0];
+    logger_js_1.logger.info({ orderId, previousStatus, newStatus: updatedOrder.status }, "Order successfully reset for retry");
+    return {
+        success: true,
+        message: "Order reset successfully and ready for retry",
+        order: updatedOrder,
+        previousStatus,
+        previousAttemptCount
+    };
+});
+// Discard reprint attempt endpoint
+app.post("/orders/:orderId/discard-reprint", async (request, reply) => {
+    const { orderId } = paramsSchema.parse(request.params);
+    logger_js_1.logger.info({ orderId }, "Discard reprint requested");
+    // Find the order
+    const rows = await db_js_1.db
+        .select()
+        .from(schema_js_1.orders)
+        .where((0, drizzle_orm_1.eq)(schema_js_1.orders.orderId, orderId))
+        .limit(1);
+    const order = rows[0];
+    if (!order) {
+        logger_js_1.logger.warn({ orderId }, "Order not found for discard reprint");
+        reply.code(404);
+        return { error: "Order not found" };
+    }
+    logger_js_1.logger.info({
+        orderId,
+        fronteStatus: order.fronteStatus,
+        retroStatus: order.retroStatus,
+        hasProcessedAt: Boolean(order.fronteProcessedAt || order.retroProcessedAt)
+    }, "Order found, preparing to discard reprint");
+    // Validate that this is actually a rework order (has been processed before)
+    if (!order.fronteProcessedAt && !order.retroProcessedAt) {
+        logger_js_1.logger.warn({ orderId }, "Cannot discard reprint for order that has never been processed");
+        reply.code(400);
+        return {
+            error: "This order has never been processed. Only rework orders can be discarded.",
+            fronteStatus: order.fronteStatus,
+            retroStatus: order.retroStatus
+        };
+    }
+    // Reset both sides to 'printed' status (or keep 'not_required' for retro)
+    const updateResult = await db_js_1.db
+        .update(schema_js_1.orders)
+        .set({
+        fronteStatus: 'printed',
+        retroStatus: order.retroStatus === 'not_required' ? 'not_required' : 'printed',
+        fronteErrorMessage: null,
+        retroErrorMessage: null,
+        fronteAttemptCount: 0,
+        retroAttemptCount: 0,
+        updatedAt: (0, drizzle_orm_1.sql) `CURRENT_TIMESTAMP`
+    })
+        .where((0, drizzle_orm_1.eq)(schema_js_1.orders.orderId, orderId))
+        .run();
+    if (updateResult.changes === 0) {
+        logger_js_1.logger.error({ orderId }, "Failed to discard reprint");
+        reply.code(500);
+        return { error: "Failed to discard reprint" };
+    }
+    // Update overall order status
+    await updateOverallStatus(orderId);
+    // Fetch the updated order
+    const updatedRows = await db_js_1.db
+        .select()
+        .from(schema_js_1.orders)
+        .where((0, drizzle_orm_1.eq)(schema_js_1.orders.orderId, orderId))
+        .limit(1);
+    const updatedOrder = updatedRows[0];
+    logger_js_1.logger.info({
+        orderId,
+        fronteStatus: updatedOrder.fronteStatus,
+        retroStatus: updatedOrder.retroStatus,
+        overallStatus: updatedOrder.status
+    }, "Reprint discarded successfully - order moved back to history");
+    return {
+        success: true,
+        message: "Reprint discarded successfully. Order moved back to history.",
+        order: updatedOrder
+    };
+});
+// Template Rules Management Endpoints
+app.get("/settings/rules", async () => {
+    const rules = await db_js_1.db
+        .select()
+        .from(schema_js_1.templateRules)
+        .orderBy(schema_js_1.templateRules.priority, schema_js_1.templateRules.id)
+        .all();
+    return { rules };
+});
+app.post("/settings/rules", async (request, reply) => {
+    const bodySchema = zod_1.z.object({
+        skuPattern: zod_1.z.string().min(1),
+        templateFilename: zod_1.z.string().min(1),
+        priority: zod_1.z.number().int().default(0)
+    });
+    try {
+        const { skuPattern, templateFilename, priority } = bodySchema.parse(request.body);
+        const result = await db_js_1.db
+            .insert(schema_js_1.templateRules)
+            .values({
+            skuPattern,
+            templateFilename,
+            priority
+        })
+            .returning();
+        return { success: true, rule: result[0] };
+    }
+    catch (error) {
+        reply.code(400);
+        return {
+            error: error instanceof Error ? error.message : "Invalid request body"
+        };
+    }
+});
+const deleteRuleParamsSchema = zod_1.z.object({
+    id: zod_1.z.coerce.number().int().min(1)
+});
+app.delete("/settings/rules/:id", async (request, reply) => {
+    try {
+        const { id } = deleteRuleParamsSchema.parse(request.params);
+        await db_js_1.db
+            .delete(schema_js_1.templateRules)
+            .where((0, drizzle_orm_1.eq)(schema_js_1.templateRules.id, id));
+        return { success: true };
+    }
+    catch (error) {
+        reply.code(400);
+        return {
+            error: error instanceof Error ? error.message : "Invalid request"
+        };
+    }
+});
+// Asset Rules Management Endpoints
+app.get("/settings/asset-rules", async () => {
+    const rules = await db_js_1.db
+        .select()
+        .from(schema_js_1.assetRules)
+        .orderBy(schema_js_1.assetRules.id)
+        .all();
+    return { rules };
+});
+app.post("/settings/asset-rules", async (request, reply) => {
+    const bodySchema = zod_1.z.object({
+        triggerKeyword: zod_1.z.string().min(1),
+        assetType: zod_1.z.enum(['image', 'font', 'color']),
+        value: zod_1.z.string().min(1)
+    });
+    try {
+        const { triggerKeyword, assetType, value } = bodySchema.parse(request.body);
+        const result = await db_js_1.db
+            .insert(schema_js_1.assetRules)
+            .values({
+            triggerKeyword,
+            assetType,
+            value
+        })
+            .returning();
+        return { success: true, rule: result[0] };
+    }
+    catch (error) {
+        reply.code(400);
+        return {
+            error: error instanceof Error ? error.message : "Invalid request body"
+        };
+    }
+});
+const deleteAssetRuleParamsSchema = zod_1.z.object({
+    id: zod_1.z.coerce.number().int().min(1)
+});
+app.delete("/settings/asset-rules/:id", async (request, reply) => {
+    try {
+        const { id } = deleteAssetRuleParamsSchema.parse(request.params);
+        await db_js_1.db
+            .delete(schema_js_1.assetRules)
+            .where((0, drizzle_orm_1.eq)(schema_js_1.assetRules.id, id));
+        return { success: true };
+    }
+    catch (error) {
+        reply.code(400);
+        return {
+            error: error instanceof Error ? error.message : "Invalid request"
+        };
+    }
+});
+// Catch-all route for SPA (must be last!)
+// This ensures React Router can handle client-side routing
+app.setNotFoundHandler(async (request, reply) => {
+    // Only serve index.html for navigation requests (not API or assets)
+    if (request.method === "GET" && !request.url.startsWith("/api")) {
+        return reply.sendFile("index.html");
+    }
+    reply.code(404);
+    return { error: "Not found" };
+});
+/**
+ * Start the Fastify server
+ * @param overridePort - Optional port override (including 0 for random port)
+ * @returns Server info with app instance, address, and port
+ */
+async function startServer(overridePort) {
+    // In Tauri sidecar mode use port 0 so the OS picks a free port.
+    // Otherwise: use override if provided, or env/default.
+    const isTauriSidecar = node_process_1.default.env.TAURI_SIDECAR === 'true';
+    const port = overridePort !== undefined
+        ? overridePort
+        : isTauriSidecar
+            ? 0
+            : Number(node_process_1.default.env.PORT || 3001);
+    // Run migrations
+    (0, migrate_js_1.runMigrations)();
+    logger_js_1.logger.info("Victoria Laser App server initializing...");
+    logger_js_1.logger.info({ paths: config_js_1.config.paths }, "Server started with configuration");
+    // Start listening
+    const address = await app.listen({ port, host: "0.0.0.0" });
+    const actualPort = app.server.address()?.port || port;
+    logger_js_1.logger.info({ port: actualPort, host: "0.0.0.0", address }, `Server listening on ${address}`);
+    // In Tauri sidecar mode, announce the actual port to stdout so the Rust
+    // main process can parse it and expose it to the frontend via get_api_port.
+    if (isTauriSidecar) {
+        // This specific format is parsed by src-tauri/src/main.rs
+        console.log(`SIDECAR_PORT=${actualPort}`);
+    }
+    // Start background hydration to pick up any unfinished jobs from a restart
+    (0, sync_js_1.startBackgroundHydration)();
+    // Only start the heartbeat-based shutdown monitor in standalone (non-Tauri) mode.
+    // In Tauri sidecar mode, the Rust main process owns process lifetime and kills
+    // the sidecar when the window closes — self-termination via heartbeat is not needed.
+    if (!isTauriSidecar) {
+        startHeartbeatMonitor();
+    }
+    return {
+        app,
+        address,
+        port: actualPort
+    };
+}
+// ESM-compatible main check: only run server when executed directly
+if (node_process_1.default.argv[1] === (0, node_url_1.fileURLToPath)(import.meta.url)) {
+    startServer().catch(err => {
+        (0, logger_js_1.logError)(err, { operation: "server_startup" });
+        node_process_1.default.exit(1);
+    });
+}

@@ -1,0 +1,76 @@
+# ============================================================
+# Node / pnpm
+# ============================================================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+
+# ============================================================
+# Build outputs
+# ============================================================
+
+# Server
+server/dist/
+server/dist-bundle/
+
+# Web / Vite
+web/dist/
+
+# Tauri / Rust
+src-tauri/target/
+
+# ============================================================
+# Tauri generated / runtime resources
+# ============================================================
+
+# Native addon and migrations are copied here by build-sidecar.mjs
+src-tauri/resources/better_sqlite3.node
+src-tauri/resources/drizzle/
+
+# The compiled sidecar exe is produced by `pnpm tauri:dev` / sidecar:build
+src-tauri/resources/server-sidecar-*.exe
+
+# ============================================================
+# Database & app data
+# ============================================================
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+
+# ============================================================
+# Environment / secrets
+# ============================================================
+.env
+.env.local
+.env.*.local
+
+# ============================================================
+# OS / editor
+# ============================================================
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+.vscode/settings.json
+.vscode/*.code-workspace
+.idea/
+
+# ============================================================
+# Logs
+# ============================================================
+logs/
+*.log
+
+# ============================================================
+# Misc
+# ============================================================
+
+# TypeScript incremental cache
+*.tsbuildinfo
+
+# pnpm workspace cache
+.cache/

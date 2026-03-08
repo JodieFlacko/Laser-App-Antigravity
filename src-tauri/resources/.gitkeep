@@ -1,0 +1,2 @@
+# Resources directory — sidecar exe and native addon are placed here before building
+.gitkeep

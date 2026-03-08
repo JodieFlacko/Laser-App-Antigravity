@@ -1,0 +1,76 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1769683364469,
+      "tag": "0000_calm_champions",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1769707065146,
+      "tag": "0001_woozy_longshot",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1770367374539,
+      "tag": "0002_reflective_baron_zemo",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1770374262335,
+      "tag": "0003_fuzzy_the_initiative",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1770467698479,
+      "tag": "0004_certain_talon",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1770472499120,
+      "tag": "0005_boring_luke_cage",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1770991514619,
+      "tag": "0006_violet_madelyne_pryor",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1771000000000,
+      "tag": "0007_add_order_item_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1771100000000,
+      "tag": "0008_remove_order_id_unique",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1771200000000,
+      "tag": "0009_add_quantity_print_counts",
+      "breakpoints": true
+    }
+  ]
+}

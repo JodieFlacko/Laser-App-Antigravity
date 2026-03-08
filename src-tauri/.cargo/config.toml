@@ -1,0 +1,13 @@
+[build]
+jobs = 2
+
+# Disable incremental compilation for dev builds.
+# On Windows, Cargo's incremental cache does atomic renames
+# (.part.bin → .bin) that fail with "os error 32" (sharing violation)
+# when a previous `cargo run` / `tauri dev` process hasn't fully exited yet.
+# Disabling incremental removes those renames — no race, no error.
+[profile.dev]
+incremental = false
+
+[profile.test]
+incremental = false
