@@ -92,12 +92,12 @@ function SideStatusBadge({
         <button
           onClick={onErrorClick}
           className="inline-flex items-center gap-1.5 rounded-full bg-orange-100 px-2.5 py-1 text-xs font-medium text-orange-700 transition-colors hover:bg-orange-200"
-          title="Configuration error - click for details"
+          title="Errore di configurazione - clicca per i dettagli"
         >
           <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
             <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
           </svg>
-          Config Error
+          Errore Configurazione
         </button>
       );
     }
@@ -106,7 +106,7 @@ function SideStatusBadge({
       <button
         onClick={onErrorClick}
         className="inline-flex items-center gap-1.5 rounded-full bg-red-100 px-2.5 py-1 text-xs font-medium text-red-700 transition-colors hover:bg-red-200"
-        title="Click to see error details"
+        title="Clicca per i dettagli dell'errore"
       >
         <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
           <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
@@ -171,7 +171,7 @@ function ErrorDetailsModal({
               )}
             </svg>
             <h3 className="text-lg font-semibold text-slate-900">
-              {isConfigError ? 'Configuration Error' : 'Error Details'}
+              {isConfigError ? 'Errore Configurazione' : 'Dettagli Errore'}
             </h3>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
@@ -205,12 +205,12 @@ function ErrorDetailsModal({
           )}
 
           <div>
-            <p className="text-sm font-medium text-slate-700">Error Message</p>
+            <p className="text-sm font-medium text-slate-700">Messaggio di Errore</p>
             <p className={`text-sm rounded px-3 py-2 border ${isConfigError
               ? 'text-orange-700 bg-orange-50 border-orange-200'
               : 'text-red-700 bg-red-50 border-red-200'
               }`}>
-              {displayMessage || "Unknown error occurred"}
+              {displayMessage || "Si è verificato un errore sconosciuto"}
             </p>
           </div>
 
@@ -218,7 +218,7 @@ function ErrorDetailsModal({
             <div>
               <p className="text-sm font-medium text-slate-700">Tentativi</p>
               <p className="text-sm text-slate-600">
-                Failed after {order.attemptCount || 0} attempt{(order.attemptCount || 0) !== 1 ? 's' : ''}
+                Fallito dopo {order.attemptCount || 0} tentativ{(order.attemptCount || 0) !== 1 ? 'i' : 'o'}
               </p>
             </div>
           )}
@@ -238,7 +238,7 @@ function ErrorDetailsModal({
                   <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
                   </svg>
-                  Fix Configuration
+                  Correggi Configurazione
                 </span>
               </button>
               <button
@@ -246,13 +246,13 @@ function ErrorDetailsModal({
                 disabled={isRetrying}
                 className="flex-1 rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed transition-opacity"
               >
-                {isRetrying ? "Resetting..." : "Reset & Retry"}
+                {isRetrying ? "Ripristino..." : "Ripristina e Riprova"}
               </button>
               <button
                 onClick={onClose}
                 className="rounded bg-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-300"
               >
-                Close
+                Chiudi
               </button>
             </>
           ) : (
@@ -262,13 +262,13 @@ function ErrorDetailsModal({
                 disabled={isRetrying}
                 className="flex-1 rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed transition-opacity"
               >
-                {isRetrying ? "Retrying..." : "Retry Order"}
+                {isRetrying ? "Nuovo tentativo..." : "Riprova Ordine"}
               </button>
               <button
                 onClick={onClose}
                 className="rounded bg-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-300"
               >
-                Close
+                Chiudi
               </button>
             </>
           )}
@@ -1084,7 +1084,7 @@ export default function App() {
                 <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
               </svg>
               <span className="flex-1 text-left text-sm font-semibold text-orange-900">
-                <strong>{configErrorOrders.length}</strong> {configErrorOrders.length === 1 ? 'Order requires' : 'Orders require'} configuration
+                <strong>{configErrorOrders.length}</strong> {configErrorOrders.length === 1 ? 'Ordine richiede' : 'Ordini richiedono'} configurazione
               </span>
               <svg
                 className={`h-5 w-5 text-orange-600 flex-shrink-0 transition-transform ${isConfigListOpen ? 'rotate-180' : ''}`}
@@ -1119,7 +1119,7 @@ export default function App() {
                         onClick={() => handleFixConfig(order)}
                         className="underline hover:text-orange-900 font-medium"
                       >
-                        Click here to add template rule in Settings
+                        Clicca qui per aggiungere una regola template nelle Impostazioni
                       </button>
                     </div>
                   );
@@ -1161,7 +1161,7 @@ export default function App() {
               />
               {searching && (
                 <span className="text-xs font-normal text-slate-500">
-                  Searching...
+                  Ricerca in corso...
                 </span>
               )}
             </div>
@@ -1209,7 +1209,7 @@ export default function App() {
                 {/* Configuration Errors collapsible (first-time errors only, no discard) */}
                 <ReworkSection
                   orders={daStampareConfigErrors}
-                  title="Configuration Errors"
+                  title="Errori di Configurazione"
                   showDiscardColumn={false}
                   activeSearchTerm={activeSearchTerm}
                   processingFronteOrders={processingFronteOrders}
@@ -1226,7 +1226,7 @@ export default function App() {
               <table className="min-w-full table-fixed divide-y divide-slate-200 text-sm">
                 {renderTableHeader()}
                 <tbody className="divide-y divide-slate-100">
-                  {renderEmptyState("Loading...")}
+                  {renderEmptyState("Caricamento...")}
                 </tbody>
               </table>
             </div>
@@ -1238,7 +1238,7 @@ export default function App() {
                   {renderTableHeader()}
                   <tbody className="divide-y divide-slate-100">
                     {loading ? (
-                      renderEmptyState("Loading...")
+                      renderEmptyState("Caricamento...")
                     ) : allOrdersDisplayed.length === 0 ? (
                       renderEmptyState(
                         activeSearchTerm
@@ -1256,7 +1256,7 @@ export default function App() {
               {!loading && (
                 <ReworkSection
                   orders={reprintConfigErrors}
-                  title="Configuration Errors (Ristampa)"
+                  title="Errori di Configurazione (Ristampa)"
                   showDiscardColumn={true}
                   activeSearchTerm={activeSearchTerm}
                   processingFronteOrders={processingFronteOrders}
@@ -1309,7 +1309,7 @@ export default function App() {
                 <svg className="h-5 w-5 text-amber-600" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                 </svg>
-                <h3 className="text-lg font-semibold text-slate-900">Discard Reprint</h3>
+                <h3 className="text-lg font-semibold text-slate-900">Scarta Ristampa</h3>
               </div>
               <button onClick={() => setDiscardConfirmOrder(null)} className="text-slate-400 hover:text-slate-600">
                 <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
@@ -1320,10 +1320,10 @@ export default function App() {
 
             <div className="mb-6">
               <p className="text-sm text-slate-700">
-                Are you sure you want to stop reprinting <strong>{discardConfirmOrder.orderId}</strong> and move it back to history?
+                Sei sicuro di voler interrompere la ristampa dell'ordine <strong>{discardConfirmOrder.orderId}</strong> e riportarlo nella cronologia?
               </p>
               <p className="mt-2 text-sm text-slate-500">
-                This will not delete the order. It will simply mark it as complete and remove it from the configuration errors queue.
+                L'ordine non verrà eliminato. Verrà semplicemente contrassegnato come completato e rimosso dalla coda degli errori di configurazione.
               </p>
             </div>
 
@@ -1335,13 +1335,13 @@ export default function App() {
                 }}
                 className="flex-1 rounded bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 transition-colors"
               >
-                Yes, Discard
+                Sì, Scarta
               </button>
               <button
                 onClick={() => setDiscardConfirmOrder(null)}
                 className="flex-1 rounded bg-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-300 transition-colors"
               >
-                Cancel
+                Annulla
               </button>
             </div>
           </div>

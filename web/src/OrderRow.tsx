@@ -39,30 +39,30 @@ export default function OrderRow({
   assetRules
 }: OrderRowProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
-  
+
   const isExactMatch =
     activeSearchTerm.length > 0 &&
     order.orderId === activeSearchTerm;
-  
+
   // Check if order has custom data for FRONT side (Amazon Custom or legacy)
   const hasFrontCustomData = Boolean(
-    order.frontText || 
-    order.designName || 
+    order.frontText ||
+    order.designName ||
     (order.customField && order.customField.trim())
   );
-  
+
   // Check if order has custom data for RETRO side (Amazon Custom or legacy with retro template)
   const hasRetroCustomData = Boolean(
-    order.backText1 || 
-    order.backText2 || 
-    order.backText3 || 
+    order.backText1 ||
+    order.backText2 ||
+    order.backText3 ||
     order.backText4 ||
     (order.customField && order.customField.trim() && order.retroStatus !== 'not_required')
   );
-  
+
   // Legacy check for backward compatibility
   const hasCustomField = hasFrontCustomData;
-  
+
   // A side is fully done when its print count has reached the required quantity
   const fronteDone = order.fronteStatus === 'printed' && order.frontePrintCount >= order.quantity;
   const retroDone = order.retroStatus === 'not_required' ||
@@ -72,49 +72,49 @@ export default function OrderRow({
   // Row background: orange in "Tutti gli Ordini", amber for exact match, dim for both sides done, white for pending
   const rowClassName = isCompletedOnlyView
     ? "bg-amber-200 transition-colors duration-200"
-    : isExactMatch 
-    ? "bg-amber-50 transition-colors duration-200" 
-    : bothSidesDone
-    ? "bg-slate-50 opacity-50 transition-opacity duration-200"
-    : "transition-colors duration-200";
+    : isExactMatch
+      ? "bg-amber-50 transition-colors duration-200"
+      : bothSidesDone
+        ? "bg-slate-50 opacity-50 transition-opacity duration-200"
+        : "transition-colors duration-200";
 
   // Calculate single overall status for the order (priority-based)
   const getOverallStatus = () => {
     // Priority 1: Check for errors (any side)
     const fronteHasError = order.fronteStatus === 'error';
     const retroHasError = order.retroStatus === 'error';
-    
+
     if (fronteHasError || retroHasError) {
       // Check if it's a config error
-      const isConfigError = 
+      const isConfigError =
         (fronteHasError && order.fronteErrorMessage?.startsWith('CONFIG_ERROR:')) ||
         (retroHasError && order.retroErrorMessage?.startsWith('CONFIG_ERROR:'));
-      
+
       if (isConfigError) {
         return (
           <button
             onClick={() => onErrorClick(order, fronteHasError ? 'front' : 'retro')}
             className="inline-flex items-center gap-1.5 rounded-full bg-orange-100 px-2.5 py-1 text-xs font-medium text-orange-700 transition-colors hover:bg-orange-200"
-            title="Configuration error - click for details"
+            title="Errore di configurazione - clicca per i dettagli"
           >
             <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
             </svg>
-            Config Error
+            Errore Config
           </button>
         );
       }
-      
+
       return (
         <button
           onClick={() => onErrorClick(order, fronteHasError ? 'front' : 'retro')}
           className="inline-flex items-center gap-1.5 rounded-full bg-red-100 px-2.5 py-1 text-xs font-medium text-red-700 transition-colors hover:bg-red-200"
-          title="Error - click for details"
+          title="Errore - clicca per i dettagli"
         >
           <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
             <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
           </svg>
-          Error
+          Errore
         </button>
       );
     }
@@ -160,7 +160,7 @@ export default function OrderRow({
       </span>
     );
   };
-  
+
   // Determine button appearance based on side status and print progress
   const getSideActionButton = (
     side: 'front' | 'retro',
@@ -172,7 +172,7 @@ export default function OrderRow({
     const remaining = order.quantity - sidePrintCount;
     // Check if this side has custom data FIRST (before checking not_required status)
     const hasCustomDataForSide = side === 'front' ? hasFrontCustomData : hasRetroCustomData;
-    
+
     if (!hasCustomDataForSide) {
       // No custom data for this side
       // For retro: show N/A if marked as not_required, otherwise show dash
@@ -201,26 +201,26 @@ export default function OrderRow({
     // Error state - check if it's a configuration error
     if (sideStatus === 'error') {
       const isConfigError = sideErrorMessage?.startsWith('CONFIG_ERROR:');
-      
+
       if (isConfigError) {
         return (
           <button
             className="rounded bg-orange-600 px-3 py-1 text-xs font-medium text-white hover:bg-orange-700 transition-colors"
             onClick={() => onErrorClick(order, side)}
-            title="Configuration error - click for details"
+            title="Errore di configurazione - clicca per i dettagli"
           >
-            Fix Config
+            Correggi Config
           </button>
         );
       }
-      
+
       return (
         <button
           className="rounded bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-700 transition-colors"
           onClick={() => onErrorClick(order, side)}
-          title="Error - click to retry"
+          title="Errore - clicca per riprovare"
         >
-          Retry
+          Riprova
         </button>
       );
     }
@@ -253,7 +253,7 @@ export default function OrderRow({
 
     // Pending state - show primary button
     return (
-        <button
+      <button
         className="rounded bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-700 transition-colors"
         onClick={() => onProcessSide(order.orderItemId!, side)}
         title={`Process ${side === 'front' ? 'front' : 'retro'} side`}
@@ -262,141 +262,141 @@ export default function OrderRow({
       </button>
     );
   };
-  
+
   return (
     <>
       <tr
         key={order.id}
         className={rowClassName}
       >
-      <td className={`${isInGroup ? 'pl-8 pr-4 border-l-2 border-indigo-200' : 'px-4'} py-3 font-medium w-32 text-left align-middle ${isInGroup ? 'text-slate-400 text-xs' : 'text-slate-700'}`}>
-        {order.orderId}
-      </td>
-      <td className="px-4 py-3 font-medium text-slate-700 w-40 text-left align-middle">
-        {order.orderItemId ?? "-"}
-      </td>
-      <td className="px-4 py-3 text-slate-950 w-32 text-left align-middle">
-        {order.sku ?? "-"}
-      </td>
-      <td className="px-4 py-3 w-16 text-center align-middle">
-        {order.quantity > 1 ? (
-          <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800 ring-1 ring-inset ring-amber-400/40">
-            ×{order.quantity}
-          </span>
-        ) : (
-          <span className="text-slate-400 text-xs">1</span>
-        )}
-      </td>
-      <td className="px-4 py-3 text-slate-600 w-48 text-left align-middle">
-        {(order.frontText || order.designName) ? (
-          <div className="flex flex-col gap-1.5">
-            <button
-              onClick={() => setIsModalOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 transition-colors w-fit"
-              title="View customization details"
-            >
-              <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-              </svg>
-              Visualizza Dettagli
-            </button>
-            {!order.designName && order.frontText && (
-              <span className="text-xs text-slate-600 truncate" title={order.frontText}>
-                {order.frontText}
-              </span>
-            )}
-          </div>
-        ) : order.zipUrl && order.customDataSynced !== 1 ? (
-          <span className="inline-flex items-center gap-1.5 text-xs text-amber-600">
-            <span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse"></span>
-            ⏳ Downloading...
-          </span>
-        ) : hasCustomField ? (
-          <div className="text-sm">{order.customField}</div>
-        ) : (
-          <span className="inline-flex items-center rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600 ring-1 ring-inset ring-slate-500/10">
-            Standard
-          </span>
-        )}
-      </td>
-      <td className="px-4 py-3 w-20 text-center align-middle">
-        <div className="flex items-center justify-center">
-          {order.colorName ? (
-            (() => {
-              // Look up color from asset rules
-              const colorRule = assetRules.find(
-                rule => rule.assetType === 'color' && 
-                        rule.triggerKeyword.toLowerCase() === order.colorName?.toLowerCase()
-              );
-              
-              if (colorRule) {
-                return (
-                  <div 
-                    className="h-6 w-6 rounded-full border-2 border-slate-300"
-                    style={{ backgroundColor: colorRule.value }}
-                    title={`${order.colorName} (${colorRule.value})`}
-                  />
-                );
-              }
-              
-              // Fallback to showing color name if no rule found
-              return <span className="font-semibold text-slate-700">{order.colorName}</span>;
-            })()
-          ) : order.detectedColor ? (
-            <div 
-              className="h-6 w-6 rounded-full border-2 border-slate-300"
-              style={{ backgroundColor: order.detectedColor }}
-              title={order.detectedColor}
-            />
+        <td className={`${isInGroup ? 'pl-8 pr-4 border-l-2 border-indigo-200' : 'px-4'} py-3 font-medium w-32 text-left align-middle ${isInGroup ? 'text-slate-400 text-xs' : 'text-slate-700'}`}>
+          {order.orderId}
+        </td>
+        <td className="px-4 py-3 font-medium text-slate-700 w-40 text-left align-middle">
+          {order.orderItemId ?? "-"}
+        </td>
+        <td className="px-4 py-3 text-slate-950 w-32 text-left align-middle">
+          {order.sku ?? "-"}
+        </td>
+        <td className="px-4 py-3 w-16 text-center align-middle">
+          {order.quantity > 1 ? (
+            <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800 ring-1 ring-inset ring-amber-400/40">
+              ×{order.quantity}
+            </span>
           ) : (
-            <span className="text-slate-400">-</span>
+            <span className="text-slate-400 text-xs">1</span>
           )}
-        </div>
-      </td>
-      <td className="px-4 py-3 whitespace-nowrap w-32 text-center align-middle">
-        <div className="flex items-center justify-center">
-          {getOverallStatus()}
-        </div>
-      </td>
-      <td className="px-4 py-3 whitespace-nowrap w-44 text-center align-middle">
-        <div className="flex items-center justify-center">
-          {getSideActionButton('front', order.fronteStatus, order.fronteErrorMessage, order.fronteAttemptCount, order.frontePrintCount)}
-        </div>
-      </td>
-      <td className="px-4 py-3 whitespace-nowrap w-44 text-center align-middle">
-        <div className="flex items-center justify-center">
-          {getSideActionButton('retro', order.retroStatus, order.retroErrorMessage, order.retroAttemptCount, order.retroPrintCount)}
-        </div>
-      </td>
-      {showDiscardColumn && (
-        <td className="px-4 py-3 whitespace-nowrap w-32 text-center align-middle">
-          <div className="flex items-center justify-center">
-            {(order.fronteStatus === 'error' || order.retroStatus === 'error') ? (
+        </td>
+        <td className="px-4 py-3 text-slate-600 w-48 text-left align-middle">
+          {(order.frontText || order.designName) ? (
+            <div className="flex flex-col gap-1.5">
               <button
-                onClick={() => onDiscardClick?.(order)}
-                className="inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium text-slate-600 hover:text-red-600 hover:bg-red-50 transition-colors"
-                title="Cancel reprint and move back to history"
+                onClick={() => setIsModalOpen(true)}
+                className="inline-flex items-center gap-1.5 rounded bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 transition-colors w-fit"
+                title="Visualizza dettagli personalizzazione"
               >
-                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                 </svg>
-                Discard
+                Visualizza Dettagli
               </button>
+              {!order.designName && order.frontText && (
+                <span className="text-xs text-slate-600 truncate" title={order.frontText}>
+                  {order.frontText}
+                </span>
+              )}
+            </div>
+          ) : order.zipUrl && order.customDataSynced !== 1 ? (
+            <span className="inline-flex items-center gap-1.5 text-xs text-amber-600">
+              <span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse"></span>
+              ⏳ Download in corso...
+            </span>
+          ) : hasCustomField ? (
+            <div className="text-sm">{order.customField}</div>
+          ) : (
+            <span className="inline-flex items-center rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600 ring-1 ring-inset ring-slate-500/10">
+              Standard
+            </span>
+          )}
+        </td>
+        <td className="px-4 py-3 w-20 text-center align-middle">
+          <div className="flex items-center justify-center">
+            {order.colorName ? (
+              (() => {
+                // Look up color from asset rules
+                const colorRule = assetRules.find(
+                  rule => rule.assetType === 'color' &&
+                    rule.triggerKeyword.toLowerCase() === order.colorName?.toLowerCase()
+                );
+
+                if (colorRule) {
+                  return (
+                    <div
+                      className="h-6 w-6 rounded-full border-2 border-slate-300"
+                      style={{ backgroundColor: colorRule.value }}
+                      title={`${order.colorName} (${colorRule.value})`}
+                    />
+                  );
+                }
+
+                // Fallback to showing color name if no rule found
+                return <span className="font-semibold text-slate-700">{order.colorName}</span>;
+              })()
+            ) : order.detectedColor ? (
+              <div
+                className="h-6 w-6 rounded-full border-2 border-slate-300"
+                style={{ backgroundColor: order.detectedColor }}
+                title={order.detectedColor}
+              />
             ) : (
-              <span className="text-slate-300">-</span>
+              <span className="text-slate-400">-</span>
             )}
           </div>
         </td>
-      )}
-    </tr>
-    
-    {/* Custom Data Modal */}
-    <CustomDataModal
-      isOpen={isModalOpen}
-      onClose={() => setIsModalOpen(false)}
-      order={order}
-    />
+        <td className="px-4 py-3 whitespace-nowrap w-32 text-center align-middle">
+          <div className="flex items-center justify-center">
+            {getOverallStatus()}
+          </div>
+        </td>
+        <td className="px-4 py-3 whitespace-nowrap w-44 text-center align-middle">
+          <div className="flex items-center justify-center">
+            {getSideActionButton('front', order.fronteStatus, order.fronteErrorMessage, order.fronteAttemptCount, order.frontePrintCount)}
+          </div>
+        </td>
+        <td className="px-4 py-3 whitespace-nowrap w-44 text-center align-middle">
+          <div className="flex items-center justify-center">
+            {getSideActionButton('retro', order.retroStatus, order.retroErrorMessage, order.retroAttemptCount, order.retroPrintCount)}
+          </div>
+        </td>
+        {showDiscardColumn && (
+          <td className="px-4 py-3 whitespace-nowrap w-32 text-center align-middle">
+            <div className="flex items-center justify-center">
+              {(order.fronteStatus === 'error' || order.retroStatus === 'error') ? (
+                <button
+                  onClick={() => onDiscardClick?.(order)}
+                  className="inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium text-slate-600 hover:text-red-600 hover:bg-red-50 transition-colors"
+                  title="Annulla ristampa e riporta alla cronologia"
+                >
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                  Scarta
+                </button>
+              ) : (
+                <span className="text-slate-300">-</span>
+              )}
+            </div>
+          </td>
+        )}
+      </tr>
+
+      {/* Custom Data Modal */}
+      <CustomDataModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        order={order}
+      />
     </>
   );
 }

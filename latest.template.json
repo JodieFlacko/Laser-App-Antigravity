@@ -5,7 +5,7 @@
     "platforms": {
         "windows-x86_64": {
             "signature": "INCOLLA_QUI_IL_CONTENUTO_DEL_FILE_.SIG",
-            "url": "https://github.com/JodieFlacko/Laser-App-Antigravity/releases/download/v1.0.1/VictoriaLaserApp_1.0.1_x64_en-US.msi.zip"
+            "url": "https://github.com/JodieFlacko/Laser-App-Antigravity/releases/download/v1.0.1/VictoriaLaserApp_1.0.1_x64_en-US.msi"
         }
     }
 }

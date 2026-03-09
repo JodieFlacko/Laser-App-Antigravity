@@ -38,7 +38,7 @@ function groupOrdersByOrderId(orders: Order[]): Map<string, Order[]> {
 
 export default function ReworkSection({
   orders,
-  title = 'Configuration Errors',
+  title = 'Errori di Configurazione',
   showDiscardColumn = false,
   activeSearchTerm = '',
   processingFronteOrders,
@@ -76,9 +76,9 @@ export default function ReworkSection({
         onClick={() => setIsOpen(!isOpen)}
         className="w-full bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-center gap-2 hover:bg-amber-100 transition-colors"
       >
-        <svg 
+        <svg
           className={`h-4 w-4 text-amber-900 transition-transform ${isOpen ? 'rotate-180' : ''}`}
-          fill="currentColor" 
+          fill="currentColor"
           viewBox="0 0 20 20"
         >
           <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
@@ -92,17 +92,17 @@ export default function ReworkSection({
           <table className="min-w-full table-fixed divide-y divide-slate-200 text-sm">
             <thead className="bg-slate-100 text-xs uppercase tracking-wide text-slate-500">
               <tr>
-                <th className="px-4 py-3 whitespace-nowrap w-32 text-left align-middle">Order ID</th>
-                <th className="px-4 py-3 whitespace-nowrap w-40 text-left align-middle">Item ID</th>
+                <th className="px-4 py-3 whitespace-nowrap w-32 text-left align-middle">ID Ordine</th>
+                <th className="px-4 py-3 whitespace-nowrap w-40 text-left align-middle">ITEM ID</th>
                 <th className="px-4 py-3 whitespace-nowrap w-32 text-left align-middle">SKU</th>
                 <th className="px-4 py-3 whitespace-nowrap w-16 text-center align-middle">Qty</th>
-                <th className="px-4 py-3 whitespace-nowrap w-48 text-left align-middle">Custom Field</th>
-                <th className="px-4 py-3 whitespace-nowrap w-20 text-center align-middle">Color</th>
+                <th className="px-4 py-3 whitespace-nowrap w-48 text-left align-middle">Campo Custom</th>
+                <th className="px-4 py-3 whitespace-nowrap w-20 text-center align-middle">Colore</th>
                 <th className="px-4 py-3 whitespace-nowrap w-32 text-center align-middle">Status</th>
-                <th className="px-4 py-3 whitespace-nowrap w-44 text-center align-middle">Action Fronte</th>
-                <th className="px-4 py-3 whitespace-nowrap w-44 text-center align-middle">Action Retro</th>
+                <th className="px-4 py-3 whitespace-nowrap w-44 text-center align-middle">Azione Fronte</th>
+                <th className="px-4 py-3 whitespace-nowrap w-44 text-center align-middle">Azione Retro</th>
                 {showDiscardColumn && (
-                  <th className="px-4 py-3 whitespace-nowrap w-32 text-center align-middle">Discard</th>
+                  <th className="px-4 py-3 whitespace-nowrap w-32 text-center align-middle">Scarta</th>
                 )}
               </tr>
             </thead>
@@ -139,18 +139,18 @@ export default function ReworkSection({
                     {isExpanded &&
                       items.map((order) => (
                         <OrderRow
-                        key={order.id}
-                        order={order}
-                        showDiscardColumn={showDiscardColumn}
-                        isInGroup={true}
-                        activeSearchTerm={activeSearchTerm}
-                        processingFronteOrders={processingFronteOrders}
-                        processingRetroOrders={processingRetroOrders}
-                        onProcessSide={onProcessSide}
-                        onErrorClick={onErrorClick}
-                        onDiscardClick={onDiscardClick}
-                        assetRules={assetRules}
-                      />
+                          key={order.id}
+                          order={order}
+                          showDiscardColumn={showDiscardColumn}
+                          isInGroup={true}
+                          activeSearchTerm={activeSearchTerm}
+                          processingFronteOrders={processingFronteOrders}
+                          processingRetroOrders={processingRetroOrders}
+                          onProcessSide={onProcessSide}
+                          onErrorClick={onErrorClick}
+                          onDiscardClick={onDiscardClick}
+                          assetRules={assetRules}
+                        />
                       ))}
                   </>
                 );

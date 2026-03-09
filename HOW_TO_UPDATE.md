@@ -11,9 +11,8 @@ Esegui il comando di build per generare i file necessari:
 pnpm build:app
 ```
 Al termine della compilazione, nella cartella `src-tauri/target/release/bundle/msi/` troverai:
-- `VictoriaLaserApp_<version>_x64_en-US.msi` (L'installer normale)
-- `VictoriaLaserApp_<version>_x64_en-US.msi.zip` (L'archivio usato dall'auto-updater)
-- `VictoriaLaserApp_<version>_x64_en-US.msi.zip.sig` (La firma digitale di sicurezza)
+- `VictoriaLaserApp_<version>_x64_en-US.msi` (L'installer normale che fa anche da Update bundle)
+- `VictoriaLaserApp_<version>_x64_en-US.msi.sig` (La firma digitale di sicurezza generata per l'installer)
 
 Copia il contenuto del file `.sig` (è una breve stringa di testo) perché ti servirà per il file `latest.json`.
 
@@ -30,21 +29,20 @@ Crea una copia di `latest.template.json`, rinominala in `latest.json` e aggiorna
   "platforms": {
     "windows-x86_64": {
       "signature": "INCOLLA_QUI_IL_CONTENUTO_DEL_FILE_.SIG",
-      "url": "https://github.com/JodieFlacko/Laser-App-Antigravity/releases/download/v1.0.1/VictoriaLaserApp_1.0.1_x64_en-US.msi.zip"
+      "url": "https://github.com/JodieFlacko/Laser-App-Antigravity/releases/download/v1.0.1/VictoriaLaserApp_1.0.1_x64_en-US.msi"
     }
   }
 }
 ```
-*Assicurati che l'URL punti direttamente al file `.zip` che caricherai su GitHub e che la firma sia esattamente quella contenuta nel file `.sig` senza spazi extra.*
+*Assicurati che l'URL punti direttamente al file `.msi` che caricherai su GitHub e che la firma sia esattamente quella contenuta nel file `.sig` senza spazi extra.*
 
 ## 4. Pubblica su GitHub Releases
 1. Vai su [Releases del tuo repository](https://github.com/JodieFlacko/Laser-App-Antigravity/releases).
 2. Clicca su **"Draft a new release"**.
 3. Scegli un tag (es. `v1.0.1`) e un titolo.
-4. Carica come "Assets" i seguenti 4 file:
-   - L'installer (`.msi`)
-   - L'archivio update (`.msi.zip`)
-   - La firma (`.msi.zip.sig`) (opzionale se hai messo la signature nel json, ma fortemente consigliato averlo tra gli assets)
+4. Carica come "Assets" i seguenti 3 file:
+   - L'installer (`.msi` oppure `.exe` a seconda di quale scegli di usare)
+   - La firma dell'installer associato (`.msi.sig` oppure `.exe.sig` - facoltativo se inclusa nel json, ma consigliato)
    - Il file **`latest.json`** compilato correttamente.
 
 > [!IMPORTANT]
