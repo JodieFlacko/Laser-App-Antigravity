@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { check } from '@tauri-apps/plugin-updater';
+import { relaunch } from '@tauri-apps/plugin-process';
 
 type TemplateRule = {
   id: number;
@@ -443,6 +445,38 @@ export default function Settings({ onBack, suggestedSku, apiUrl }: SettingsProps
               </div>
             </div>
           )}
+        </section>
+
+        {/* Updater Section */}
+        <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm mt-6 mb-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="mb-1 text-lg font-semibold text-slate-800">Aggiornamenti App</h2>
+              <p className="text-sm text-slate-600">Verifica se è disponibile una nuova versione di Victoria Laser App.</p>
+            </div>
+            <button
+              type="button"
+              className="rounded border border-indigo-600 px-4 py-2 text-sm font-medium text-indigo-600 hover:bg-indigo-50"
+              onClick={async () => {
+                try {
+                  const update = await check();
+                  if (update?.available) {
+                    if (confirm(`Nuova versione ${update.version} disponibile.\n\nNote di rilascio:\n${update.body || 'Nessuna'}\n\nInstallare ora?`)) {
+                      await update.downloadAndInstall();
+                      await relaunch();
+                    }
+                  } else {
+                    alert('Nessun aggiornamento disponibile. Hai già l\'ultima versione!');
+                  }
+                } catch (error) {
+                  console.error('Failed to check for updates', error);
+                  alert('Errore durante la ricerca degli aggiornamenti.');
+                }
+              }}
+            >
+              Cerca Aggiornamenti
+            </button>
+          </div>
         </section>
 
         {/* Tabs */}
