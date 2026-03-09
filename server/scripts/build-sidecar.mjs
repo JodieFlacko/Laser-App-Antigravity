@@ -85,6 +85,15 @@ function loadAddon(_nameOrOpts) {
     } else {
       addonPath = rootPath; // Fallback to root (dev mode behavior)
     }
+
+    console.error('[DEBUG-ADDON]', JSON.stringify({
+      SIDECAR_RESOURCES_DIR: process.env.SIDECAR_RESOURCES_DIR,
+      rootPath,
+      nestedPath,
+      nestedExists: fs.existsSync(nestedPath),
+      rootExists: fs.existsSync(rootPath),
+      addonPath
+    }));
   } else {
      // Dev fallback: use the node_modules path relative to the bundle __dirname.
      addonPath = path.join(__dirname, '..', 'node_modules', 'better-sqlite3', 'build', 'Release', 'better_sqlite3.node');
