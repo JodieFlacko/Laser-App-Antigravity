@@ -63,9 +63,11 @@ export default function OrderRow({
   // Legacy check for backward compatibility
   const hasCustomField = hasFrontCustomData;
 
-  // A side is fully done when its print count has reached the required quantity
-  const fronteDone = order.fronteStatus === 'printed' && order.frontePrintCount >= order.quantity;
-  const retroDone = order.retroStatus === 'not_required' ||
+  // A side is "done" if it has no custom data, OR if it has been fully printed.
+  // This replaces the unreliable retroStatus='not_required' check.
+  const fronteDone = !hasFrontCustomData ||
+    (order.fronteStatus === 'printed' && order.frontePrintCount >= order.quantity);
+  const retroDone = !hasRetroCustomData ||
     (order.retroStatus === 'printed' && order.retroPrintCount >= order.quantity);
   const bothSidesDone = fronteDone && retroDone;
 

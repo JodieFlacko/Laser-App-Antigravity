@@ -238,14 +238,18 @@ process.on('SIGINT', performGracefulShutdown);
 
 /**
  * Calculate overall order status based on front and retro statuses and print counts.
- * The order is only considered 'printed' when both sides have reached the required quantity.
+ * A side is considered "done" only if it has NO custom data, OR its print count has
+ * reached the required quantity. This replaces the unreliable retroStatus='not_required'
+ * check with an actual inspection of the order's custom data fields.
  */
 function calculateOverallStatus(
   fronteStatus: string,
   retroStatus: string,
   quantity: number = 1,
   frontePrintCount: number = 0,
-  retroPrintCount: number = 0
+  retroPrintCount: number = 0,
+  hasFrontCustomData: boolean = true,
+  hasRetroCustomData: boolean = true
 ): 'pending' | 'processing' | 'printed' | 'error' {
   // If either side has an error, overall is error
   if (fronteStatus === 'error' || retroStatus === 'error') {
@@ -257,9 +261,11 @@ function calculateOverallStatus(
     return 'processing';
   }
 
-  // Both sides must have reached the required quantity
-  const fronteDone = fronteStatus === 'printed' && frontePrintCount >= quantity;
-  const retroDone = retroStatus === 'not_required' || (retroStatus === 'printed' && retroPrintCount >= quantity);
+  // A side is done if it has no custom data, OR if it has been printed enough times
+  const fronteDone = !hasFrontCustomData ||
+    (fronteStatus === 'printed' && frontePrintCount >= quantity);
+  const retroDone = !hasRetroCustomData ||
+    (retroStatus === 'printed' && retroPrintCount >= quantity);
 
   if (fronteDone && retroDone) {
     return 'printed';
@@ -280,12 +286,36 @@ async function updateOverallStatus(orderId: string): Promise<void> {
   }
 
   const currentOrder = order[0];
+
+  // Determine whether each side actually has custom data to print.
+  // A front side has data if it has Amazon Custom text/design fields or a legacy custom field.
+  // A retro side has data if it has any back-text fields, or a legacy custom field AND
+  // retroStatus is not 'not_required' (meaning a retro template was found for this SKU).
+  const hasFrontCustomData = Boolean(
+    currentOrder.frontText ||
+    currentOrder.designName ||
+    (currentOrder.customField && currentOrder.customField.trim())
+  );
+  const hasRetroCustomData = Boolean(
+    currentOrder.backText1 ||
+    currentOrder.backText2 ||
+    currentOrder.backText3 ||
+    currentOrder.backText4 ||
+    (
+      currentOrder.customField &&
+      currentOrder.customField.trim() &&
+      currentOrder.retroStatus !== 'not_required'
+    )
+  );
+
   const newStatus = calculateOverallStatus(
     currentOrder.fronteStatus,
     currentOrder.retroStatus,
     currentOrder.quantity,
     currentOrder.frontePrintCount,
-    currentOrder.retroPrintCount
+    currentOrder.retroPrintCount,
+    hasFrontCustomData,
+    hasRetroCustomData
   );
 
   // Only update if status changed
@@ -623,16 +653,34 @@ app.get("/orders", async (request) => {
     // For side-specific filtering, exclude only if BOTH sides are fully done
     // (i.e. each side's print count has reached the required quantity)
     if (excludeStatus === 'printed') {
-      conditions.push(
-        sql`NOT (
-          ${orders.fronteStatus} = 'printed'
-          AND ${orders.frontePrintCount} >= ${orders.quantity}
-          AND (
-            ${orders.retroStatus} = 'not_required'
-            OR (${orders.retroStatus} = 'printed' AND ${orders.retroPrintCount} >= ${orders.quantity})
-          )
-        )`
-      );
+      // A side has custom data when any of its text/design fields is non-null/non-empty.
+      // The retro side also counts as having custom data when a legacy customField is present
+      // AND the retro template was found (retroStatus != 'not_required').
+      const sqlHasFrontData = sql`(
+        (${orders.frontText} IS NOT NULL AND ${orders.frontText} != '') OR
+        (${orders.designName} IS NOT NULL AND ${orders.designName} != '') OR
+        (${orders.customField} IS NOT NULL AND ${orders.customField} != '')
+      )`;
+      const sqlHasRetroData = sql`(
+        (${orders.backText1} IS NOT NULL AND ${orders.backText1} != '') OR
+        (${orders.backText2} IS NOT NULL AND ${orders.backText2} != '') OR
+        (${orders.backText3} IS NOT NULL AND ${orders.backText3} != '') OR
+        (${orders.backText4} IS NOT NULL AND ${orders.backText4} != '') OR
+        (
+          (${orders.customField} IS NOT NULL AND ${orders.customField} != '') AND
+          ${orders.retroStatus} != 'not_required'
+        )
+      )`;
+      // A side is "done" if it has no custom data, or if it has been fully printed
+      const sqlFrontDone = sql`(
+        NOT ${sqlHasFrontData} OR
+        (${orders.fronteStatus} = 'printed' AND ${orders.frontePrintCount} >= ${orders.quantity})
+      )`;
+      const sqlRetroDone = sql`(
+        NOT ${sqlHasRetroData} OR
+        (${orders.retroStatus} = 'printed' AND ${orders.retroPrintCount} >= ${orders.quantity})
+      )`;
+      conditions.push(sql`NOT (${sqlFrontDone} AND ${sqlRetroDone})`);
     } else {
       conditions.push(ne(orders.status, excludeStatus));
     }
