@@ -1,1 +1,1 @@
-{}
+{"updater-capability":{"identifier":"updater-capability","description":"Allow updater and process relaunch","local":true,"windows":["main"],"permissions":["core:default","updater:default","process:default"]}}

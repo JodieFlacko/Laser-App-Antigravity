@@ -1,0 +1,12 @@
+{
+    "identifier": "updater-capability",
+    "description": "Allow updater and process relaunch",
+    "windows": [
+        "main"
+    ],
+    "permissions": [
+        "core:default",
+        "updater:default",
+        "process:default"
+    ]
+}

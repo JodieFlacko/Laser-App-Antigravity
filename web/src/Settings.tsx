@@ -470,7 +470,7 @@ export default function Settings({ onBack, suggestedSku, apiUrl }: SettingsProps
                   }
                 } catch (error) {
                   console.error('Failed to check for updates', error);
-                  alert('Errore durante la ricerca degli aggiornamenti.');
+                  alert(`Errore durante la ricerca degli aggiornamenti: ${error}`);
                 }
               }}
             >
