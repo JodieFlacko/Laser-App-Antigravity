@@ -1038,7 +1038,7 @@ export default function App() {
       <div className="mx-auto max-w-5xl space-y-6">
         <header className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-semibold">Importer ordini Amazon</h1>
+            <h1 className="text-2xl font-semibold">Importer ordini custom Amazon</h1>
             <p className="text-sm text-slate-600">
               Sincronizza ordini e invia campi personalizzati a LightBurn.
             </p>
