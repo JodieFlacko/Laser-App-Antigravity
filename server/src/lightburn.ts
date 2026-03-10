@@ -682,16 +682,16 @@ export async function generateLightBurnProject(
 
     // Handle text injection based on side
     if (side === 'retro') {
-      // Retro side: Update 4 separate text fields
+      // Retro side: Update 4 separate text fields identified by their Str placeholder value
       const retroTexts = [
-        { placeholder: '{{Text_Field_1}}', text: order.backText1 },
-        { placeholder: '{{Text_Field_2}}', text: order.backText2 },
-        { placeholder: '{{Text_Field_3}}', text: order.backText3 },
-        { placeholder: '{{Text_Field_4}}', text: order.backText4 }
+        { strPlaceholder: 'Testo Retro 1', text: order.backText1 },
+        { strPlaceholder: 'Testo Retro 2', text: order.backText2 },
+        { strPlaceholder: 'Testo Retro 3', text: order.backText3 },
+        { strPlaceholder: 'Testo Retro 4', text: order.backText4 }
       ];
 
-      retroTexts.forEach((field, index) => {
-        const shape = $(`Shape[Name="${field.placeholder}"]`);
+      retroTexts.forEach((field) => {
+        const shape = $('Shape').filter((_, el) => $(el).attr('Str') === field.strPlaceholder);
 
         if (shape.length > 0) {
           shape.attr('Str', field.text || '');
@@ -713,18 +713,18 @@ export async function generateLightBurnProject(
 
           logger.info({
             orderId: order.orderId,
-            field: field.placeholder,
+            strPlaceholder: field.strPlaceholder,
             text: field.text,
             font: order.fontFamily
           }, 'Retro text field injected');
         } else {
-          logger.warn({ orderId: order.orderId, field: field.placeholder }, 'Retro text field placeholder not found in template');
+          logger.warn({ orderId: order.orderId, strPlaceholder: field.strPlaceholder }, 'Retro text field placeholder (by Str) not found in template');
         }
       });
     } else {
-      // Front side: Single text field with legacy fallback
+      // Front side: Single text field identified by Str="Testo Fronte"
       const textToEngrave = order.frontText || extractEngravingName(order.customField);
-      const customerShape = $('Shape[Name="{{CUSTOMER_NAME}}"]');
+      const customerShape = $('Shape').filter((_, el) => $(el).attr('Str') === 'Testo Fronte');
 
       if (customerShape.length > 0) {
         customerShape.attr('Str', textToEngrave);
@@ -746,15 +746,21 @@ export async function generateLightBurnProject(
         }
 
         logger.info({ textToEngrave, orderId: order.orderId }, "Front text injected into template");
+      } else {
+        logger.warn({ orderId: order.orderId }, 'Front text shape (Str="Testo Fronte") not found in template');
       }
     }
 
     // Inject design image for front side if designName is provided
+    // The placeholder image shape is identified by its File attribute pointing to placeholder.png.
+    // Derived from config.paths.assets (which uses os.homedir() internally) so it works for any user.
+    const IMAGE_PLACEHOLDER_PATH = normalizePathForWindows(path.join(config.paths.assets, 'placeholder.png'));
+
     if (side === 'front' && order.designName) {
       const foundPath = await findDesignImagePath(order.designName);
 
       if (foundPath) {
-        const designShape = $('Shape[Name="{{DESIGN_IMAGE}}"]');
+        const designShape = $('Shape').filter((_, el) => $(el).attr('File') === IMAGE_PLACEHOLDER_PATH);
 
         if (designShape.length > 0) {
           // The Magic Fix: Set File, empty Data, reset SourceHash
@@ -764,7 +770,7 @@ export async function generateLightBurnProject(
 
           logger.info({ orderId: order.orderId, designName: order.designName, imagePath: foundPath }, 'Design image injected');
         } else {
-          logger.warn({ orderId: order.orderId, designName: order.designName }, 'No {{DESIGN_IMAGE}} shape found in template');
+          logger.warn({ orderId: order.orderId, designName: order.designName }, 'No placeholder image shape (File=placeholder.png) found in template');
         }
       }
     }
@@ -781,7 +787,7 @@ export async function generateLightBurnProject(
         copiedFiles.push(imagePath);
         logger.debug({ imagePath }, "Tracking copied image file for potential cleanup");
 
-        const imageShape = $('Shape[Name="{{DESIGN_IMAGE}}"]');
+        const imageShape = $('Shape').filter((_, el) => $(el).attr('File') === IMAGE_PLACEHOLDER_PATH);
 
         if (imageShape.length > 0) {
           // The Magic Fix: Set File, empty Data, reset SourceHash
@@ -793,7 +799,7 @@ export async function generateLightBurnProject(
             "Image injected with Magic Fix (Data='', SourceHash='0')"
           );
         } else {
-          logger.warn({ orderId: order.orderId }, "No {{DESIGN_IMAGE}} shape found in template");
+          logger.warn({ orderId: order.orderId }, "No placeholder image shape (File=placeholder.png) found in template");
         }
       } catch (error) {
         logError(error, { orderId: order.orderId, imageAsset: detectedAssets.imageAsset });
@@ -806,16 +812,17 @@ export async function generateLightBurnProject(
     if (detectedAssets.fontAsset) {
       // Apply font to the appropriate shape(s) based on side
       if (side === 'retro') {
-        // Apply to all 4 retro text fields
+        // Apply to all 4 retro text fields (identified by Str placeholder value)
         for (let i = 1; i <= 4; i++) {
-          const shape = $(`Shape[Name="{{Text_Field_${i}}}"]`);
+          const strVal = `Testo Retro ${i}`;
+          const shape = $('Shape').filter((_, el) => $(el).attr('Str') === strVal);
           if (shape.length > 0) {
             shape.attr("Font", detectedAssets.fontAsset);
           }
         }
       } else {
-        // Apply to front text field
-        const shape = $('Shape[Name="{{CUSTOMER_NAME}}"]');
+        // Apply to front text field (identified by Str="Testo Fronte")
+        const shape = $('Shape').filter((_, el) => $(el).attr('Str') === 'Testo Fronte');
         if (shape.length > 0) {
           shape.attr("Font", detectedAssets.fontAsset);
         }
