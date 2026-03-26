@@ -92,12 +92,12 @@ export default function ReworkSection({
           <table className="min-w-full table-fixed divide-y divide-slate-200 text-sm">
             <thead className="bg-slate-100 text-xs uppercase tracking-wide text-slate-500">
               <tr>
+                <th className="px-4 py-3 whitespace-nowrap w-36 text-left align-middle">Acquirente</th>
                 <th className="px-4 py-3 whitespace-nowrap w-32 text-left align-middle">ID Ordine</th>
                 <th className="px-4 py-3 whitespace-nowrap w-40 text-left align-middle">ITEM ID</th>
                 <th className="px-4 py-3 whitespace-nowrap w-32 text-left align-middle">SKU</th>
                 <th className="px-4 py-3 whitespace-nowrap w-16 text-center align-middle">Qty</th>
                 <th className="px-4 py-3 whitespace-nowrap w-48 text-left align-middle">Campo Custom</th>
-                <th className="px-4 py-3 whitespace-nowrap w-20 text-center align-middle">Colore</th>
                 <th className="px-4 py-3 whitespace-nowrap w-32 text-center align-middle">Status</th>
                 <th className="px-4 py-3 whitespace-nowrap w-44 text-center align-middle">Azione Fronte</th>
                 <th className="px-4 py-3 whitespace-nowrap w-44 text-center align-middle">Azione Retro</th>

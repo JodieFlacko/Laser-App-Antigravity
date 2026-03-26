@@ -271,6 +271,9 @@ export default function OrderRow({
         key={order.id}
         className={rowClassName}
       >
+        <td className="px-4 py-3 font-bold text-slate-900 w-36 text-left align-middle">
+          {order.buyerName ?? "-"}
+        </td>
         <td className={`${isInGroup ? 'pl-8 pr-4 border-l-2 border-indigo-200' : 'px-4'} py-3 font-medium w-32 text-left align-middle ${isInGroup ? 'text-slate-400 text-xs' : 'text-slate-700'}`}>
           {order.orderId}
         </td>
@@ -303,11 +306,6 @@ export default function OrderRow({
                 </svg>
                 Visualizza Dettagli
               </button>
-              {!order.designName && order.frontText && (
-                <span className="text-xs text-slate-600 truncate" title={order.frontText}>
-                  {order.frontText}
-                </span>
-              )}
             </div>
           ) : order.zipUrl && order.customDataSynced !== 1 ? (
             <span className="inline-flex items-center gap-1.5 text-xs text-amber-600">
@@ -322,40 +320,7 @@ export default function OrderRow({
             </span>
           )}
         </td>
-        <td className="px-4 py-3 w-20 text-center align-middle">
-          <div className="flex items-center justify-center">
-            {order.colorName ? (
-              (() => {
-                // Look up color from asset rules
-                const colorRule = assetRules.find(
-                  rule => rule.assetType === 'color' &&
-                    rule.triggerKeyword.toLowerCase() === order.colorName?.toLowerCase()
-                );
 
-                if (colorRule) {
-                  return (
-                    <div
-                      className="h-6 w-6 rounded-full border-2 border-slate-300"
-                      style={{ backgroundColor: colorRule.value }}
-                      title={`${order.colorName} (${colorRule.value})`}
-                    />
-                  );
-                }
-
-                // Fallback to showing color name if no rule found
-                return <span className="font-semibold text-slate-700">{order.colorName}</span>;
-              })()
-            ) : order.detectedColor ? (
-              <div
-                className="h-6 w-6 rounded-full border-2 border-slate-300"
-                style={{ backgroundColor: order.detectedColor }}
-                title={order.detectedColor}
-              />
-            ) : (
-              <span className="text-slate-400">-</span>
-            )}
-          </div>
-        </td>
         <td className="px-4 py-3 whitespace-nowrap w-32 text-center align-middle">
           <div className="flex items-center justify-center">
             {getOverallStatus()}
