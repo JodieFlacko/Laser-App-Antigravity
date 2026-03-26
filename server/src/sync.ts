@@ -239,7 +239,7 @@ export async function syncOrders(): Promise<SyncResult> {
     }
   }
 
-  const RETENTION_DAYS = 7;
+  const RETENTION_DAYS = 30;
   const deleteResult = db
     .delete(orders)
     .where(sql`${orders.createdAt} < datetime('now', '-${sql.raw(String(RETENTION_DAYS))} days')`)
@@ -247,7 +247,7 @@ export async function syncOrders(): Promise<SyncResult> {
 
   deleted = deleteResult.changes;
   if (deleted > 0) {
-    logger.info({ deleted, retentionDays: RETENTION_DAYS }, "Removed orders older than 7 days");
+    logger.info({ deleted, retentionDays: RETENTION_DAYS }, `Removed orders older than ${RETENTION_DAYS} days`);
   }
 
   if (totalParsed > 0 && added + skipped + duplicates === 0) {

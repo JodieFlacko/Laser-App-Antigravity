@@ -856,11 +856,12 @@ export default function App() {
   // printCount already meeting quantity). This prevents a completed order from flickering
   // out of "Ordini Stampati" and into "Da Stampare" while a reprint is in flight.
   const isOrderCompleted = (order: Order) => {
-    const hasFrontCustomData = Boolean(
+    const pendingHydration = Boolean(order.zipUrl && order.customDataSynced !== 1);
+    const hasFrontCustomData = pendingHydration || Boolean(
       order.frontText || order.designName ||
       (order.customField && order.customField.trim())
     );
-    const hasRetroCustomData = Boolean(
+    const hasRetroCustomData = pendingHydration || Boolean(
       order.backText1 || order.backText2 || order.backText3 || order.backText4 ||
       (order.customField && order.customField.trim() && order.retroStatus !== 'not_required')
     );
@@ -892,11 +893,12 @@ export default function App() {
   // Uses print counts rather than current status so it correctly detects reprints in flight
   // (processing) and errors that occurred during a reprint of an already-completed order.
   const wasFullyPrintedBefore = (order: Order) => {
-    const hasFrontCustomData = Boolean(
+    const pendingHydration = Boolean(order.zipUrl && order.customDataSynced !== 1);
+    const hasFrontCustomData = pendingHydration || Boolean(
       order.frontText || order.designName ||
       (order.customField && order.customField.trim())
     );
-    const hasRetroCustomData = Boolean(
+    const hasRetroCustomData = pendingHydration || Boolean(
       order.backText1 || order.backText2 || order.backText3 || order.backText4 ||
       (order.customField && order.customField.trim() && order.retroStatus !== 'not_required')
     );

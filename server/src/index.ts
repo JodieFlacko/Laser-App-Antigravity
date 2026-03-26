@@ -291,12 +291,20 @@ async function updateOverallStatus(orderId: string): Promise<void> {
   // A front side has data if it has Amazon Custom text/design fields or a legacy custom field.
   // A retro side has data if it has any back-text fields, or a legacy custom field AND
   // retroStatus is not 'not_required' (meaning a retro template was found for this SKU).
-  const hasFrontCustomData = Boolean(
+  // An order with a zipUrl that hasn't been hydrated yet (customDataSynced = 0) is
+  // awaiting Amazon Custom data — treat it as having custom data on both sides so it
+  // is never prematurely marked as printed before hydration completes.
+  const pendingHydration = Boolean(
+    currentOrder.zipUrl &&
+    currentOrder.zipUrl.trim() &&
+    !currentOrder.customDataSynced
+  );
+  const hasFrontCustomData = pendingHydration || Boolean(
     currentOrder.frontText ||
     currentOrder.designName ||
     (currentOrder.customField && currentOrder.customField.trim())
   );
-  const hasRetroCustomData = Boolean(
+  const hasRetroCustomData = pendingHydration || Boolean(
     currentOrder.backText1 ||
     currentOrder.backText2 ||
     currentOrder.backText3 ||
@@ -656,12 +664,20 @@ app.get("/orders", async (request) => {
       // A side has custom data when any of its text/design fields is non-null/non-empty.
       // The retro side also counts as having custom data when a legacy customField is present
       // AND the retro template was found (retroStatus != 'not_required').
+      // An order with a zipUrl not yet hydrated (customDataSynced = 0) is awaiting
+      // Amazon Custom data — it must count as having custom data so we don't
+      // accidentally filter it out of "Da Stampare" before hydration completes.
+      const sqlPendingHydration = sql`(
+        ${orders.zipUrl} IS NOT NULL AND ${orders.zipUrl} != '' AND ${orders.customDataSynced} = 0
+      )`;
       const sqlHasFrontData = sql`(
+        ${sqlPendingHydration} OR
         (${orders.frontText} IS NOT NULL AND ${orders.frontText} != '') OR
         (${orders.designName} IS NOT NULL AND ${orders.designName} != '') OR
         (${orders.customField} IS NOT NULL AND ${orders.customField} != '')
       )`;
       const sqlHasRetroData = sql`(
+        ${sqlPendingHydration} OR
         (${orders.backText1} IS NOT NULL AND ${orders.backText1} != '') OR
         (${orders.backText2} IS NOT NULL AND ${orders.backText2} != '') OR
         (${orders.backText3} IS NOT NULL AND ${orders.backText3} != '') OR

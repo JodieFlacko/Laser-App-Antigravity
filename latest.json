@@ -1,11 +1,11 @@
 {
-    "version": "1.0.2",
-    "notes": "Test Update",
-    "pub_date": "2026-03-09T20:00:00Z",
+    "version": "1.0.3",
+    "notes": "Nuove Funzionalità:\n1. Esteso periodo di conservazione a 30 giorni\n2. Corretto il modo di visualizzare le informazioni personalizzate quando l'immagine frontale è assente\n3. Sostituita la colonna \"Colore\" con la colonna \"Nome Acquirente\"\n4. Il pulsante Sincronizza visualizza correttamente gli ordini al primo clic",
+    "pub_date": "2026-03-26T19:56:35Z",
     "platforms": {
         "windows-x86_64": {
-            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTY3NKUmNpTGUwLzhsSGtDWEtwRG1DbDZrMUdzM05VTi9OMFAzbTB3RXdmTVR1QUhsRWpqU3plbi9jSFp6UzZ1TUNKWWRtWTZEMXkzZUJxd2NHYmNvT2VjS2RCMlZVY2djPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzczMDkwOTQ1CWZpbGU6VmljdG9yaWFMYXNlckFwcF8xLjAuMl94NjRfZW4tVVMubXNpCmNRTDk0UFcrcTFMNG5sZFJMWjJrMmhhdmdhMXNGQitYMXdGd0tvQXFVS0F1aXFEZEhPQ0lNcW5XcEJBU3o3cXlXMHMvT3FJclNDcTZIc283U21ZbkFRPT0K",
-            "url": "https://github.com/JodieFlacko/Laser-App-Antigravity/releases/download/v1.0.2/VictoriaLaserApp_1.0.2_x64_en-US.msi"
+            "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTY3NKUmNpTGUwLytDZlJkWnlkQVVqZ1RpcFFNeHJENklpbGJxbzF6NzVHMXFjM0VDUXZ6d3Zlczl6WnF6MWhNQjZFSUpCdGRRbkl4T0Y0THM0TmdsNzRqNENoZ0ZtN2djPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc0NTIwOTMwCWZpbGU6VmljdG9yaWFMYXNlckFwcF8xLjAuM194NjRfZW4tVVMubXNpCmFNZlJ4OEFaL2FvVEs1dUovWllvL0Ntdm9rM1pOVDFaelBGQXNJUEZzbDEwd21NTXBFcW43MlVhNzZLUWdJSXZZa2l0Y0FHSFcwVXlCQkM5b2Rka0NnPT0K",
+            "url": "https://github.com/JodieFlacko/Laser-App-Antigravity/releases/download/v1.0.3/VictoriaLaserApp_1.0.3_x64_en-US.msi"
         }
     }
 }
